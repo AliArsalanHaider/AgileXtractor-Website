@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "next lint",
+    "postinstall": "prisma generate",
+    "vercel-build": "prisma generate && prisma migrate deploy && next build"
   },
   "dependencies": {
     "@prisma/client": "^6.15.0",
@@ -32,13 +34,7 @@
     "tailwindcss": "^4",
     "typescript": "^5"
   },
-
-  "scripts": {
-    "postinstall": "prisma generate",
-    "vercel-build": "prisma generate && prisma migrate deploy && next build",
-    "build": "prisma generate && next build",
-    "dev": "next dev"
+  "engines": {
+    "node": ">=18"
   }
 }
-
-

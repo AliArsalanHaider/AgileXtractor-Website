@@ -21,16 +21,16 @@ export default function Result() {
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
 
-  // fullscreen for images (custom immersive overlay)
+  // fullscreen
   const [showFull, setShowFull] = useState(false);
   const fullRef = useRef<HTMLDivElement | null>(null);
 
-  // containers/refs for fit-to-container
+  // containers/refs
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
   const fsWrapRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
 
-  // fullscreen close-button visibility controller (inside fullscreen)
+  // fullscreen close-button visibility
   const [fsControlsVisible, setFsControlsVisible] = useState(false);
   const fsHideTimer = useRef<number | null>(null);
   const fsHoveringClose = useRef(false);
@@ -45,6 +45,7 @@ export default function Result() {
       fsHideTimer.current = null;
     }
   };
+
   const kickShowFsControls = (lingerMs = 1400) => {
     setFsControlsVisible(true);
     clearFsHideTimer();
@@ -68,22 +69,28 @@ export default function Result() {
     setPan({ x: 0, y: 0 });
   };
 
-  // ===== Credits helpers (Prisma-backed API) =====
-  async function refreshCredits(e: string) {
+  // ===== Credits helpers =====
+  async function refreshCredits(e: string): Promise<{ remaining: number; total: number } | null> {
     try {
       const res = await fetch(`/api/credits/status?email=${encodeURIComponent(e)}`, { cache: "no-store" });
       if (!res.ok) {
         setCredits(null);
         setHasRegistered(false);
-        return;
+        return null;
       }
       const json = await res.json();
-      const d = json.data; // Prisma: { totalCredits, remainingCredits, ... }
-      setCredits({ remaining: d.remainingCredits, total: d.totalCredits });
+      const d = json.data || {};
+      const out = {
+        remaining: d.remainingCredits ?? d.Remaining_Credits ?? 0,
+        total: d.totalCredits ?? d.Total_Credits ?? 0,
+      };
+      setCredits(out);
       setHasRegistered(true);
+      return out;
     } catch {
       setCredits(null);
       setHasRegistered(false);
+      return null;
     }
   }
 
@@ -103,11 +110,14 @@ export default function Result() {
       setError(j?.error || "Registration failed");
       return;
     }
-    try { localStorage.setItem("agx_email", email); } catch {}
+    try {
+      localStorage.setItem("agx_email", email);
+    } catch {}
     setHasRegistered(true);
     await refreshCredits(email);
   }
 
+  // Restore saved email on mount
   useEffect(() => {
     try {
       const saved = localStorage.getItem("agx_email");
@@ -118,6 +128,7 @@ export default function Result() {
     } catch {}
   }, []);
 
+  // Choose file
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] || null;
     setFile(f);
@@ -125,6 +136,7 @@ export default function Result() {
     setError(null);
     setPan({ x: 0, y: 0 });
     setShowFull(false);
+
     if (f) {
       setPreview(URL.createObjectURL(f));
       setIsPdf(f.type === "application/pdf");
@@ -134,6 +146,7 @@ export default function Result() {
     }
   };
 
+  // Convert file -> base64 (no data: prefix)
   const fileToBase64 = (f: File): Promise<string> =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -152,101 +165,101 @@ export default function Result() {
     return docs.length;
   };
 
-  // Upload -> extract -> charge only what user can afford; never show results with "out of credits"
+  // Upload -> extract -> slice to affordable -> charge -> show
   const handleUploadAndExtract = async () => {
-    if (!file) return setError("Please select a file first.");
-    if (!email) return setError("Please enter your email and click Register to get 500 trial credits.");
+    if (!file) {
+      setError("Please select a file first.");
+      return;
+    }
+    if (!email) {
+      setError("Please enter your email and click Register to get 500 trial credits.");
+      return;
+    }
 
     setLoading(true);
     setError(null);
     setApiResult(null);
 
     try {
-      // 0) Pre-check credits (block if < 100 so we don't show results then error)
-      await refreshCredits(email);
-      const rem0 = credits?.remaining ?? 0;
-      if (rem0 < 100) {
+      // pre-check credits (avoid rendering results if <100)
+      const c0 = await refreshCredits(email);
+      if ((c0?.remaining ?? 0) < 100) {
         setError("You’ve run out of credits. Please purchase a plan to continue.");
         return;
       }
 
-      // 1) Extract FIRST (no charge yet)
+      // extract first (no charge yet)
       const base64 = await fileToBase64(file);
       const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
-
       const resp = await fetch("/api/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ data: base64, extension }),
       });
-
       if (!resp.ok) {
         const t = await resp.text();
         throw new Error(t || "API request failed");
       }
-
       const json = await resp.json();
-      // determine docs in the full result
+
       const docsDetected = Math.max(0, countDocsFromResult(json));
+      if (!docsDetected) {
+        await refreshCredits(email); // keep UI in sync
+        setError("No documents detected. No credits charged.");
+        return;
+      }
 
-      // 2) Refresh credits again to be precise at charge time
-      await refreshCredits(email);
-      const remaining = credits?.remaining ?? 0;
-
-      // How many docs can we afford? (100 credits per doc)
+      // re-check credits now
+      const c1 = await refreshCredits(email);
+      const remaining = c1?.remaining ?? 0;
       const affordableDocs = Math.floor(remaining / 100);
-
       if (affordableDocs <= 0) {
-        // Can't afford any -> don't show results
         setError("You’ve run out of credits. Please purchase a plan to continue.");
         return;
       }
 
-      // Decide how many to charge & show
-      const docsToCharge = Math.max(1, Math.min(docsDetected || 1, affordableDocs));
+      const docsToCharge = Math.max(1, Math.min(docsDetected, affordableDocs));
 
-      // If we detected more docs than affordable, slice the result before showing
+      // slice result if needed
       let displayResult = json;
       if (docsDetected > docsToCharge) {
         const arr = Array.isArray(json?.images_results) ? json.images_results : [];
         const sliced = arr.filter((x: any) => x?.detected_data).slice(0, docsToCharge);
-        // keep original order/shape: replace images_results with only the docs we can afford
         displayResult = { ...json, images_results: sliced };
         setError(`Only processed ${docsToCharge} of ${docsDetected} document(s) due to credit limit.`);
       }
 
-      // 3) Charge for the number of docs we are going to show
+      // charge
       const consumeRes = await fetch("/api/credits/consume", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, docs: docsToCharge }),
       });
-
       if (!consumeRes.ok) {
         const j = await consumeRes.json().catch(() => ({}));
         if (consumeRes.status === 402 || j?.code === "INSUFFICIENT") {
-          // Safety: do not show results if charge failed
           setError("You’ve run out of credits. Please purchase a plan to continue.");
-          return;
         } else if (consumeRes.status === 404 || j?.code === "NO_ACCOUNT") {
           setError("No account found. Please register first to get 500 trial credits.");
-          return;
         } else {
           setError(j?.error || "Failed to consume credits.");
-          return;
         }
+        return;
       }
 
       const consumeJson = await consumeRes.json();
-      const d = consumeJson?.data; // prisma row
-      setCredits({ remaining: d.remainingCredits, total: d.totalCredits });
+      const d = consumeJson?.data || {};
+      setCredits({
+        remaining: d.remainingCredits ?? d.Remaining_Credits ?? 0,
+        total: d.totalCredits ?? d.Total_Credits ?? 0,
+      });
 
-      // Show the (possibly sliced) result only after successful charge
+      // show result only after successful charge
       setApiResult(displayResult);
     } catch (e: any) {
       console.error("Extract error:", e);
       setError(e?.message || "Error extracting data");
-      // Absolutely no charge on unexpected errors; optional signal (no-op on server)
+      // report no-op (no charge)
       try {
         await fetch("/api/credits/consume", {
           method: "POST",
@@ -261,9 +274,7 @@ export default function Result() {
 
   const allDetectedData = useMemo(() => {
     if (!apiResult?.images_results) return [];
-    return apiResult.images_results
-      .map((res: any) => res?.detected_data || null)
-      .filter(Boolean);
+    return apiResult.images_results.map((res: any) => res?.detected_data || null).filter(Boolean);
   }, [apiResult]);
 
   const docTitle = useMemo(() => {
@@ -325,8 +336,7 @@ export default function Result() {
   };
 
   const downloadBlob = (content: string, mime: string, ext: string) => {
-    const blob = new Blob([content], { type: mime });
-    const url = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(new Blob([content], { type: mime }));
     const a = document.createElement("a");
     a.href = url;
     a.download = `${docTitle || "extracted-data"}.${ext}`;
@@ -351,7 +361,6 @@ export default function Result() {
   };
 
   const canPan = !!preview && !isPdf && zoom > 1;
-
   const onPointerDown = (e: React.PointerEvent) => {
     if (!canPan) return;
     const el = e.currentTarget as HTMLElement;
@@ -381,12 +390,16 @@ export default function Result() {
     setZoom((z) => Math.min(3.5, Math.max(0.25, Number((z + step).toFixed(2)))));
   };
 
-  useEffect(() => { if (zoom <= 1.001) setPan({ x: 0, y: 0 }); }, [zoom]);
+  useEffect(() => {
+    if (zoom <= 1.001) setPan({ x: 0, y: 0 });
+  }, [zoom]);
 
   useEffect(() => {
     if (!showFull) return;
     window.dispatchEvent(new CustomEvent("agx:immersive", { detail: true }));
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setShowFull(false); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowFull(false);
+    };
     window.addEventListener("keydown", onKey);
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -439,9 +452,324 @@ export default function Result() {
 
   return (
     <div className="flex h-[80dvh] w-full bg-gray-100 p-6 gap-4">
-      {/* LEFT panel unchanged ... */}
-      {/* (omitted here for brevity—keep your original JSX; only logic above changed) */}
-      {/* Paste your original left/preview + right/results JSX here unchanged */}
+      {/* LEFT: File Preview / Controls */}
+      <div className="relative flex-1 max-w-[640px] min-w-[300px] rounded-2xl p-5 shadow-lg flex flex-col">
+        {/* Video Background */}
+        <video
+          className="absolute inset-0 w-full h-full object-cover pointer-events-none rounded-2xl"
+          src="/God rays new.mp4"
+          autoPlay
+          loop
+          muted
+          playsInline
+          aria-hidden="true"
+        />
+
+        {/* Foreground content */}
+        <div className="relative z-10 flex flex-col h-full">
+          {/* Email + Register / Status (shows once; hides after register) */}
+          {!hasRegistered && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Enter email to use trial credits"
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-gray-800 bg-white"
+              />
+              <button
+                onClick={handleRegister}
+                className="px-3 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700"
+              >
+                Register
+              </button>
+            </div>
+          )}
+
+          {!preview ? (
+            <div className="flex-1 flex items-center justify-center">
+              <label className="cursor-pointer btn-blue px-4 py-2 rounded-lg shadow">
+                Choose File
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          ) : (
+            <>
+              {/* Choose File button (top-left) */}
+              <div className="flex justify-start mb-3">
+                <label className="cursor-pointer btn-blue px-4 py-2 rounded-lg shadow">
+                  Choose File
+                  <input
+                    type="file"
+                    accept="image/*,.pdf"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {/* Controls row */}
+              <div className="w-full flex items-center justify-center gap-3 pb-3 border-b border-white/40">
+                {!isPdf && (
+                  <>
+                    <button
+                      onClick={() => setZoom((z) => Math.max(0.25, Number((z - 0.1).toFixed(2))))}
+                      className="px-2 py-0.5 rounded-md bg-transparent text-white/90 border border-white/30 hover:bg-white/10 hover:border-white/50 transition shadow-none text-sm"
+                      aria-label="Zoom out"
+                    >
+                      −
+                    </button>
+                    <input
+                      type="range"
+                      min={0.25}
+                      max={3.5}
+                      step={0.1}
+                      value={zoom}
+                      onChange={(e) => setZoom(parseFloat(e.target.value))}
+                      className="w-40"
+                      aria-label="Zoom"
+                    />
+                    <button
+                      onClick={() => setZoom((z) => Math.min(3.5, Number((z + 0.1).toFixed(2))))}
+                      className="px-2 py-0.5 rounded-md bg-transparent text-white/90 border border-white/30 hover:bg-white/10 hover:border-white/50 transition shadow-none text-sm"
+                      aria-label="Zoom in"
+                    >
+                      +
+                    </button>
+                  </>
+                )}
+
+                {/* Fullscreen button (image -> overlay, PDF -> new tab) */}
+                <button
+                  onClick={openFullscreen}
+                  className="ml-4 inline-flex items-left justify-left p-1.5 rounded-md bg-transparent text-white/90 border border-white/30 hover:bg-white/10 hover:border-white/50 transition shadow-none"
+                  aria-label="Open fullscreen"
+                  title={isPdf ? "Open PDF in new tab" : "Open fullscreen"}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M8 3H3v5M3 16v5h5M16 3h5v5M21 16v5h-5"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  <span className="text-sm">{isPdf ? "Open" : ""}</span>
+                </button>
+              </div>
+
+              {/* File preview frame — transparent so video shows */}
+              <div
+                ref={previewWrapRef}
+                className={[
+                  "mt-4 flex-1 flex items-center justify-center overflow-hidden rounded-lg select-none overscroll-contain",
+                  !!preview && !isPdf && zoom > 1 ? (dragging ? "cursor-grabbing" : "cursor-grab") : "cursor-default",
+                ].join(" ")}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onWheelCapture={onWheelZoomExclusive}
+                onWheel={onWheelZoomExclusive}
+              >
+                {isPdf ? (
+                  <iframe src={preview!} className="w-full h-full rounded-lg" title="PDF Preview" />
+                ) : (
+                  <img
+                    ref={imgRef}
+                    src={preview!}
+                    alt="Preview"
+                    className="max-w-none max-h-none object-contain"
+                    style={{
+                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                      transformOrigin: "center",
+                    }}
+                    draggable={false}
+                    onLoad={() => computeFitTo(showFull ? fsWrapRef.current : previewWrapRef.current)}
+                  />
+                )}
+              </div>
+
+              {/* Upload & Extract button */}
+              <div className="pt-4">
+                <button
+                  onClick={handleUploadAndExtract}
+                  disabled={loading}
+                  className="w-full btn-blue hover:bg-blue-200 text-blue-800 font-medium py-2 rounded-lg shadow disabled:opacity-60"
+                >
+                  {loading ? "Extracting..." : "Upload & Extract"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Divider */}
+      <div className="w-px bg-gray-300 self-stretch" />
+
+      {/* RIGHT: Results */}
+      <div className="flex-1 max-w-[640px] min-w-[360px] bg-white rounded-2xl p-6 shadow-lg overflow-y-auto">
+        {/* Top row: Credits (left) + Download (right) */}
+        <div className="flex items-center justify-between mb-2" ref={dlMenuRef}>
+          <div className="text-sm text-sky-500 font-medium">
+            {credits ? (
+              <>
+                Credits: <span className="font-semibold">{credits.remaining}</span> / {credits.total}
+              </>
+            ) : (
+              <span className="opacity-70">Credits: —</span>
+            )}
+          </div>
+
+          <div className="relative">
+            <button
+              onClick={() => {
+                if (!allDetectedData.length && !apiResult) return;
+                setShowDownloadMenu((s) => !s);
+              }}
+              disabled={!allDetectedData.length && !apiResult}
+              className="cursor-pointer btn-blue text-blue-700 px-4 py-2 rounded-lg shadow hover:bg-blue-50 disabled:opacity-60"
+              aria-label="Download Data"
+            >
+              Download
+            </button>
+
+            {showDownloadMenu && (
+              <div className="absolute right-0 mt-2 w-44 rounded-lg border border-gray-200 bg-white shadow-lg z-20 overflow-hidden">
+                <button
+                  onClick={() => downloadBlob(JSON.stringify(getRowsForExport(), null, 2), "application/json", "json")}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
+                >
+                  JSON (.json)
+                </button>
+                <button
+                  onClick={() => downloadBlob(toCSV(getRowsForExport()), "text/csv", "csv")}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
+                >
+                  CSV (.csv)
+                </button>
+                <button
+                  onClick={() => downloadBlob(toTXT(getRowsForExport()), "text/plain", "txt")}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
+                >
+                  Text (.txt)
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="pb-3 border-b border-gray-300" />
+
+        <h2 className="text-2xl font-semibold text-brand-blue mb-5 mt-4">{docTitle}</h2>
+
+        {error && (
+          <div className="mb-4 rounded border border-red-300 bg-red-50 px-3 py-2 text-red-700">
+            {error}
+          </div>
+        )}
+
+        {!allDetectedData.length && !error && (
+          <p className="text-gray-500">No data extracted yet.</p>
+        )}
+
+        {allDetectedData.length > 0 && (
+          <div className="flex flex-col gap-6">
+            {allDetectedData.map((data: any, idx: number) => (
+              <div key={idx} className="grid grid-cols-1 gap-5 border p-4 rounded-lg">
+                <h3 className="text-lg font-medium text-blue-600 mb-2">Document {idx + 1}</h3>
+                {Object.entries(data).map(([key, value]) => (
+                  <div key={key} className="flex flex-col">
+                    <label className="text-sm font-medium text-gray-600 mb-1">{key}</label>
+                    <input
+                      readOnly
+                      value={String(value ?? "")}
+                      className="px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-gray-800 focus:outline-none"
+                    />
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Fullscreen Modal for images (CUSTOM overlay) */}
+      {showFull && !isPdf && preview && (
+        <div
+          ref={fullRef}
+          role="dialog"
+          aria-modal="true"
+          tabIndex={-1}
+          className="fixed inset-0 z-[1000] bg-black/95 backdrop-blur-2xl supports-[backdrop-filter]:bg-black/90 focus:outline-none overflow-hidden"
+          onWheel={(e) => e.preventDefault()}
+          onMouseMove={() => kickShowFsControls()}
+          onTouchStart={() => kickShowFsControls(2000)}
+        >
+          {/* Viewer layer */}
+          <div
+            ref={fsWrapRef}
+            className={[
+              "absolute inset-0 z-10 flex items-center justify-center overflow-hidden select-none",
+              !!preview && !isPdf && zoom > 1 ? (dragging ? "cursor-grabbing" : "cursor-grab") : "cursor-default",
+            ].join(" ")}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+          >
+            <img
+              ref={imgRef}
+              src={preview}
+              alt="Fullscreen Preview"
+              className="max-w-none max-h-none object-contain"
+              style={{
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                transformOrigin: "center",
+              }}
+              draggable={false}
+              onLoad={() => computeFitTo(fsWrapRef.current)}
+            />
+          </div>
+
+          {/* Bottom-center Close button (auto-hide) */}
+          <button
+            onClick={() => setShowFull(false)}
+            onMouseEnter={() => {
+              fsHoveringClose.current = true;
+              clearFsHideTimer();
+              setFsControlsVisible(true);
+            }}
+            onMouseLeave={() => {
+              fsHoveringClose.current = false;
+              kickShowFsControls(); // start hide countdown again
+            }}
+            onFocus={() => setFsControlsVisible(true)}
+            onBlur={() => kickShowFsControls()}
+            className={[
+              "z-20 fixed left-1/2 -translate-x-1/2",
+              "bottom-4 transition-all duration-300",
+              fsControlsVisible ? "opacity-90 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none",
+              "rounded-full px-3 py-2 bg-white/80 hover:bg-white text-gray-900 shadow-lg ring-1 ring-black/10",
+              "backdrop-blur",
+            ].join(" ")}
+            aria-label="Close fullscreen"
+            title="Close (Esc)"
+          >
+            <span className="inline-flex items-center gap-2">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+              <span className="text-sm">Close</span>
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
