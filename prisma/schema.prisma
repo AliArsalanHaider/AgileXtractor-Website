@@ -1,15 +1,21 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
-  provider = "prisma-client-js"
-  output   = "../lib/generated/prisma"
+  provider = "prisma-client-js"   // <-- remove custom `output`
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // pooled (POSTGRES_PRISMA_URL)
+  directUrl = env("DIRECT_URL")   // non-pooled (POSTGRES_URL_NON_POOLING)
+}
+
+model Registration {
+  accountId        Int     @id @default(autoincrement()) @map("Account_ID")
+  email            String  @unique                       @map("Email_ID")
+  totalCredits     Int     @default(0)                   @map("Total_Credits")
+  consumedCredits  Int     @default(0)                   @map("Consumed_Credits")
+  remainingCredits Int     @default(0)                   @map("Remaining_Credits")
+  active           Boolean @default(true)                @map("Active")
+
+  @@map("credits") // <-- table name = credits
+  
 }
