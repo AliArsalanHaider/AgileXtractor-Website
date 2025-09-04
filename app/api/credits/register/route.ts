@@ -13,15 +13,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "email required" }, { status: 400 });
     }
 
-    // credits.register(email) expects a single argument
-    const data = await registerCredits(email);
+    const data = await registerCredits(email); // ✅ only one argument
     return NextResponse.json({ ok: true, data }, { status: 200 });
   } catch (err: any) {
     const code = err?.code || "ERROR";
     const status = code === "INVALID_EMAIL" ? 400 : 400;
-    return NextResponse.json(
-      { ok: false, code, error: err?.message || "error" },
-      { status }
-    );
+    return NextResponse.json({ ok: false, code, error: err?.message || "error" }, { status });
   }
 }
