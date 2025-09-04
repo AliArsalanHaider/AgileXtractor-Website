@@ -31,14 +31,14 @@
     "eslint-config-next": "15.5.0",
     "tailwindcss": "^4",
     "typescript": "^5"
-  }
-}
-{
+  },
+
   "scripts": {
-    "postinstall": "prisma generate",                  // keep for local & fresh installs
+    "postinstall": "prisma generate",
     "vercel-build": "prisma generate && prisma migrate deploy && next build",
-    "build": "prisma generate && next build",          // local prod build also regenerates
+    "build": "prisma generate && next build",
     "dev": "next dev"
   }
 }
+
 
