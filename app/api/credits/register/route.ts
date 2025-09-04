@@ -13,7 +13,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "email required" }, { status: 400 });
     }
 
-    const data = await registerCredits(email); // ✅ only one argument
+    // our helper takes ONE argument
+    const data = await registerCredits(email);
     return NextResponse.json({ ok: true, data }, { status: 200 });
   } catch (err: any) {
     const code = err?.code || "ERROR";
