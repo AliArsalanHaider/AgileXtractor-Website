@@ -75,7 +75,7 @@ export default function Pricing() {
           <span className="text-[#2BAEFF]">powerful creators</span>
         </h2>
         <p className="mt-3 text-center text-black">
-          Choose a plan that's right for you
+          Choose a plan {"that's"} right for you
         </p>
 
         {/* Toggle */}
