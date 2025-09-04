@@ -14,9 +14,9 @@ const norm = (email: string) => email.trim().toLowerCase();
 /** Create account if missing; leaves existing rows unchanged. */
 export async function register(email: string, initialTotal = 0): Promise<CreditsRow> {
   const e = norm(email);
-  const row = await prisma.accountCredits.upsert({
+  const row = await prisma.registration.upsert({
     where: { email: e },
-    update: {},
+    update: {}, // do not modify on re-register
     create: {
       email: e,
       totalCredits: initialTotal,
@@ -38,7 +38,7 @@ export async function register(email: string, initialTotal = 0): Promise<Credits
 /** Get current status; throws { code: 'NO_ACCOUNT' } if missing. */
 export async function getStatus(email: string): Promise<CreditsRow> {
   const e = norm(email);
-  const row = await prisma.accountCredits.findUnique({
+  const row = await prisma.registration.findUnique({
     where: { email: e },
     select: {
       email: true,
@@ -48,9 +48,7 @@ export async function getStatus(email: string): Promise<CreditsRow> {
       active: true,
     },
   });
-  if (!row) {
-    throw Object.assign(new Error("Account not found"), { code: "NO_ACCOUNT" });
-  }
+  if (!row) throw Object.assign(new Error("Account not found"), { code: "NO_ACCOUNT" });
   return row;
 }
 
@@ -60,8 +58,8 @@ export async function addPaidCredits(email: string, amount: number): Promise<Cre
   const amt = Math.floor(Number(amount));
   if (!Number.isFinite(amt) || amt <= 0) throw new Error("Amount must be a positive integer");
 
-  // Try to update existing row atomically
-  const res = await prisma.accountCredits.updateMany({
+  // Try to update an existing row atomically
+  const res = await prisma.registration.updateMany({
     where: { email: e },
     data: {
       totalCredits: { increment: amt },
@@ -71,7 +69,7 @@ export async function addPaidCredits(email: string, amount: number): Promise<Cre
 
   if (res.count === 0) {
     // No row: create it with this balance
-    return prisma.accountCredits.create({
+    return prisma.registration.create({
       data: {
         email: e,
         totalCredits: amt,
@@ -90,7 +88,7 @@ export async function addPaidCredits(email: string, amount: number): Promise<Cre
   }
 
   // Return the updated row
-  return prisma.accountCredits.findUniqueOrThrow({
+  return prisma.registration.findUniqueOrThrow({
     where: { email: e },
     select: {
       email: true,
@@ -112,8 +110,8 @@ export async function consume(email: string, amount: number): Promise<CreditsRow
   const amt = Math.floor(Number(amount));
   if (!Number.isFinite(amt) || amt <= 0) throw new Error("Amount must be a positive integer");
 
-  // Atomic conditional update (only if enough remaining)
-  const res = await prisma.accountCredits.updateMany({
+  // Conditional atomic update (only if enough remaining and active)
+  const res = await prisma.registration.updateMany({
     where: { email: e, active: true, remainingCredits: { gte: amt } },
     data: {
       consumedCredits: { increment: amt },
@@ -122,7 +120,7 @@ export async function consume(email: string, amount: number): Promise<CreditsRow
   });
 
   if (res.count > 0) {
-    return prisma.accountCredits.findUniqueOrThrow({
+    return prisma.registration.findUniqueOrThrow({
       where: { email: e },
       select: {
         email: true,
@@ -134,13 +132,10 @@ export async function consume(email: string, amount: number): Promise<CreditsRow
     });
   }
 
-  // Work out which error to raise
-  const exists = await prisma.accountCredits.findUnique({
+  const exists = await prisma.registration.findUnique({
     where: { email: e },
     select: { remainingCredits: true },
   });
-  if (!exists) {
-    throw Object.assign(new Error("Account not found"), { code: "NO_ACCOUNT" });
-  }
+  if (!exists) throw Object.assign(new Error("Account not found"), { code: "NO_ACCOUNT" });
   throw Object.assign(new Error("Insufficient credits"), { code: "INSUFFICIENT" });
 }
