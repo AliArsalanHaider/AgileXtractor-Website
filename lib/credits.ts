@@ -1,7 +1,7 @@
 // lib/credits.ts
 import { PrismaClient, Prisma } from "@prisma/client";
 
-// Reuse Prisma client in dev to avoid too many connections with HMR
+// Reuse Prisma client in dev to avoid connection storms with HMR
 declare global {
   // eslint-disable-next-line no-var
   var __prisma__: PrismaClient | undefined;
@@ -20,22 +20,29 @@ const COST_PER_DOC = 100;
 
 const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
-// Keep UI compatibility (camelCase + legacy keys)
+// Compute remaining from totals (clamped to 0)
+function computeRemaining(total: number, consumed: number) {
+  const r = (total ?? 0) - (consumed ?? 0);
+  return r > 0 ? r : 0;
+}
+
+// Keep UI compatibility (camelCase + legacy keys), and always expose computed remaining
 function expose(row: any) {
+  const remaining = computeRemaining(row.totalCredits, row.consumedCredits);
   return {
     accountId: row.accountId,
     email: row.email,
     totalCredits: row.totalCredits,
     consumedCredits: row.consumedCredits,
-    remainingCredits: row.remainingCredits,
+    remainingCredits: remaining,
     active: row.active,
 
-    // legacy / sheet-like keys for existing UI
+    // legacy / sheet-like keys expected by existing UI
     Account_ID: row.accountId,
     Email_ID: row.email,
     Total_Credits: row.totalCredits,
     Consumed_Credits: row.consumedCredits,
-    Remaining_Credits: row.remainingCredits,
+    Remaining_Credits: remaining,
     Active: row.active,
   };
 }
@@ -53,18 +60,21 @@ export async function register(email: string) {
     throw err;
   }
 
+  // Do NOT reset credits if user exists already
   const row = await prisma.registration.upsert({
     where: { email },
-    update: {}, // do NOT reset credits if user already exists
+    update: {},
     create: {
       email,
       totalCredits: STARTING_CREDITS,
       consumedCredits: 0,
+      // keep stored remaining in sync on create
       remainingCredits: STARTING_CREDITS,
       active: true,
     },
   });
 
+  // Expose computed remaining so manual totalCredits edits reflect immediately
   return expose(row);
 }
 
@@ -80,15 +90,27 @@ export async function addPaidCredits(email: string, add: number) {
     throw err;
   }
 
-  const row = await prisma.registration.update({
-    where: { email },
-    data: {
-      totalCredits: { increment: add },
-      remainingCredits: { increment: add },
-    },
-  });
+  // Update total, and recompute remaining from (newTotal - consumed)
+  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const found = await tx.registration.findUnique({ where: { email } });
+    if (!found) {
+      const err = new Error("account not found");
+      (err as any).code = "NO_ACCOUNT";
+      throw err;
+    }
+    const newTotal = (found.totalCredits ?? 0) + add;
+    const newRemaining = computeRemaining(newTotal, found.consumedCredits ?? 0);
 
-  return expose(row);
+    const updated = await tx.registration.update({
+      where: { email },
+      data: {
+        totalCredits: { increment: add },
+        remainingCredits: newRemaining, // keep the stored column consistent
+      },
+    });
+
+    return expose(updated);
+  });
 }
 
 type ConsumeArg =
@@ -130,7 +152,8 @@ export async function consume(email: string, arg: ConsumeArg) {
     return expose(row);
   }
 
-  // Atomic charge with explicit TransactionClient type for TS
+  // Atomic charge with available computed from (total - consumed),
+  // so manual increases to totalCredits are honored immediately.
   return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const found = await tx.registration.findUnique({ where: { email } });
     if (!found) {
@@ -143,17 +166,22 @@ export async function consume(email: string, arg: ConsumeArg) {
       (err as any).code = "INACTIVE";
       throw err;
     }
-    if (found.remainingCredits < amount) {
+
+    const available = computeRemaining(found.totalCredits ?? 0, found.consumedCredits ?? 0);
+    if (available < amount) {
       const err = new Error("insufficient credits");
       (err as any).code = "INSUFFICIENT";
       throw err;
     }
 
+    const newConsumed = (found.consumedCredits ?? 0) + amount;
+    const newRemaining = computeRemaining(found.totalCredits ?? 0, newConsumed);
+
     const updated = await tx.registration.update({
       where: { email },
       data: {
         consumedCredits: { increment: amount },
-        remainingCredits: { decrement: amount },
+        remainingCredits: newRemaining, // keep stored remaining in sync
       },
     });
 
