@@ -4,24 +4,78 @@
 import Image from "next/image";
 import Link from "next/link";
 import React from "react";
+import { createPortal } from "react-dom";
 
 export default function Header() {
-  // Toggle inline calendar near the top-bar button
-  const [open, setOpen] = React.useState(false);
-  const panelRef = React.useRef<HTMLDivElement | null>(null);
-  const btnRef = React.useRef<HTMLButtonElement | null>(null);
+  // Two independent popovers
+  const [openTop, setOpenTop] = React.useState(false);
+  const [openHero, setOpenHero] = React.useState(false);
 
-  // Your public Microsoft Bookings (or Outlook published calendar) URL
+  const topBtnRef = React.useRef<HTMLButtonElement | null>(null);
+  const heroBtnRef = React.useRef<HTMLButtonElement | null>(null);
+
+  // Viewport-anchored positions
+  const [posTop, setPosTop] = React.useState<{ top: number; right: number }>({ top: 0, right: 0 });
+  const [posHero, setPosHero] = React.useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  // (Hero) panel width we use to clamp within viewport
+  const [heroWidth, setHeroWidth] = React.useState<number>(480);
+
+  // Required for portals in Next.js (avoid SSR mismatch)
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => setMounted(true), []);
+
   const bookingsUrl = process.env.NEXT_PUBLIC_CALENDAR_URL;
 
-  // Close the panel when clicking outside
+  // Compute: align panel's RIGHT edge to button's RIGHT edge; 8px below button (TOP BAR)
+  const computeRightAnchoredPos = (btn: HTMLButtonElement | null) => {
+    if (!btn) return { top: 0, right: 0 };
+    const r = btn.getBoundingClientRect();
+    return {
+      top: Math.round(r.bottom + 8),
+      right: Math.round(window.innerWidth - r.right),
+    };
+  };
+
+  // Compute: place panel to the RIGHT of the button; clamp within viewport (HERO)
+  const computeLeftAnchoredPos = (btn: HTMLButtonElement | null, panelW: number) => {
+    if (!btn) return { top: 0, left: 0 };
+    const r = btn.getBoundingClientRect();
+    const rawLeft = Math.round(r.right + 8); // start just to the right of the button
+    const maxLeft = Math.round(window.innerWidth - 8 - panelW); // keep 8px margin
+    const left = Math.max(8, Math.min(rawLeft, maxLeft));
+    return {
+      top: Math.round(r.bottom + 8),
+      left,
+    };
+  };
+
+  // Keep panels anchored while scrolling/resizing
   React.useEffect(() => {
-    if (!open) return;
+    const onSync = () => {
+      if (openTop) setPosTop(computeRightAnchoredPos(topBtnRef.current));
+      if (openHero) setPosHero(computeLeftAnchoredPos(heroBtnRef.current, heroWidth));
+    };
+    if (openTop || openHero) {
+      window.addEventListener("resize", onSync);
+      window.addEventListener("scroll", onSync, { passive: true });
+    }
+    return () => {
+      window.removeEventListener("resize", onSync);
+      window.removeEventListener("scroll", onSync);
+    };
+  }, [openTop, openHero, heroWidth]);
+
+  // Close on outside click (document-level)
+  React.useEffect(() => {
+    if (!openTop && !openHero) return;
     const onDown = (e: MouseEvent | TouchEvent) => {
-      const target = e.target as Node;
-      if (panelRef.current?.contains(target)) return;
-      if (btnRef.current?.contains(target)) return;
-      setOpen(false);
+      // The overlays have full-screen click-catchers; no extra checks needed here.
+      // This exists in case something else bubbles.
+      const target = e.target as HTMLElement;
+      if (target.closest("#bookings-panel-top") || target.closest("#bookings-panel-hero")) return;
+      setOpenTop(false);
+      setOpenHero(false);
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("touchstart", onDown);
@@ -29,7 +83,7 @@ export default function Header() {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("touchstart", onDown);
     };
-  }, [open]);
+  }, [openTop, openHero]);
 
   return (
     <header className="relative isolate overflow-hidden bg-white">
@@ -44,7 +98,6 @@ export default function Header() {
           className="absolute inset-0 w-full h-full object-cover object-top"
           preload="metadata"
         />
-        {/* Darken for text contrast */}
         <div className="absolute inset-0 bg-black/25" />
       </div>
 
@@ -62,61 +115,24 @@ export default function Header() {
             />
           </Link>
 
-          {/* Book a Live Demo (top bar) */}
+          {/* Book a Live Demo (TOP BAR) */}
           <div className="relative">
             {bookingsUrl ? (
-              <>
-                <button
-                  ref={btnRef}
-                  type="button"
-                  onClick={() => setOpen((v) => !v)}
-                  className="inline-flex items-center justify-center rounded-lg bg-white px-4 py-2 text-sm font-semibold text-sky-500 hover:bg-sky-500 hover:text-white transition"
-                  aria-haspopup="dialog"
-                  aria-expanded={open}
-                  aria-controls="bookings-panel"
-                >
-                  Book a Live Demo
-                </button>
-
-                {/* Inline calendar panel */}
-                {open && (
-                  <div
-                    id="bookings-panel"
-                    ref={panelRef}
-                    role="dialog"
-                    aria-label="Book a Live Demo"
-                    className="absolute right-0 mt-2 w-[380px] max-w-[90vw] rounded-xl border border-white/30 bg-white/95 shadow-xl backdrop-blur
-                               sm:w-[420px] sm:max-w-[92vw] lg:w-[480px] lg:max-w-[40rem] overflow-hidden z-50"
-                  >
-                    {/* Header row inside panel */}
-                    <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200">
-                      <div className="text-sm font-medium text-gray-700">Schedule a live demo</div>
-                      <button
-                        onClick={() => setOpen(false)}
-                        className="p-1 rounded-md hover:bg-gray-100"
-                        aria-label="Close"
-                      >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                        </svg>
-                      </button>
-                    </div>
-
-                    {/* Iframe with Microsoft Bookings / Outlook calendar */}
-                    <div className="w-full h-[540px] sm:h-[560px]">
-                      <iframe
-                        src={bookingsUrl}
-                        title="Bookings Calendar"
-                        className="w-full h-full"
-                        style={{ border: 0 }}
-                        allow="clipboard-write; web-share; fullscreen;"
-                        referrerPolicy="no-referrer-when-downgrade"
-                        loading="lazy"
-                      />
-                    </div>
-                  </div>
-                )}
-              </>
+              <button
+                ref={topBtnRef}
+                type="button"
+                onClick={() => {
+                  setOpenHero(false);
+                  setPosTop(computeRightAnchoredPos(topBtnRef.current));
+                  setOpenTop((v) => !v);
+                }}
+                className="inline-flex items-center justify-center rounded-lg bg-white px-4 py-2 text-sm font-semibold text-sky-500 hover:bg-sky-500 hover:text-white transition"
+                aria-haspopup="dialog"
+                aria-expanded={openTop}
+                aria-controls="bookings-panel-top"
+              >
+                Book a Live Demo
+              </button>
             ) : (
               <Link
                 href="#contact"
@@ -153,17 +169,39 @@ export default function Header() {
               >
                 Free Trial
               </Link>
-              {/* Keep hero CTA unchanged per your request */}
-              <Link
-                href="#contact"
-                className="inline-flex items-center rounded-lg bg-white px-5 py-2.5 text-sky-500 font-medium hover:bg-sky-500 hover:text-white transition"
-              >
-                Book a Live Demo
-              </Link>
+
+              {/* HERO Book a Live Demo (opens to the RIGHT of this button) */}
+              {bookingsUrl ? (
+                <button
+                  ref={heroBtnRef}
+                  type="button"
+                  onClick={() => {
+                    setOpenTop(false);
+                    // compute a responsive width for clamping (<= 90vw, max 480)
+                    const w = Math.min(480, Math.floor(window.innerWidth * 0.9));
+                    setHeroWidth(w);
+                    setPosHero(computeLeftAnchoredPos(heroBtnRef.current, w));
+                    setOpenHero((v) => !v);
+                  }}
+                  className="inline-flex items-center rounded-lg bg-white px-5 py-2.5 text-sky-500 font-medium hover:bg-sky-500 hover:text-white transition"
+                  aria-haspopup="dialog"
+                  aria-expanded={openHero}
+                  aria-controls="bookings-panel-hero"
+                >
+                  Book a Live Demo
+                </button>
+              ) : (
+                <Link
+                  href="#contact"
+                  className="inline-flex items-center rounded-lg bg-white px-5 py-2.5 text-sky-500 font-medium hover:bg-sky-500 hover:text-white transition"
+                >
+                  Book a Live Demo
+                </Link>
+              )}
             </div>
           </div>
 
-          {/* Right: Hero Image over video (stays behind the panel) */}
+          {/* Right: Hero Image over video */}
           <div className="relative flex justify-center md:justify-end">
             <Image
               src="/img on bg.png"
@@ -187,6 +225,83 @@ export default function Header() {
           priority
         />
       </div>
+
+      {/* ========= PORTAL OVERLAYS (above EVERYTHING) ========= */}
+      {mounted && openTop &&
+        createPortal(
+          <div className="fixed inset-0 z-[2147483647]">
+            <div className="absolute inset-0" onClick={() => setOpenTop(false)} />
+            <div className="absolute" style={{ top: posTop.top, right: Math.max(8, posTop.right) }}>
+              <div
+                id="bookings-panel-top"
+                role="dialog"
+                aria-label="Book a Live Demo"
+                className="rounded-xl border border-white/30 bg-white/95 shadow-xl backdrop-blur overflow-hidden"
+                style={{ width: "min(90vw, 480px)" }}
+              >
+                <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200">
+                  <div className="text-sm font-medium text-gray-700">Schedule a live demo</div>
+                  <button onClick={() => setOpenTop(false)} className="p-1 rounded-md hover:bg-gray-100" aria-label="Close">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="w-full h-[540px] sm:h-[560px]">
+                  <iframe
+                    src={bookingsUrl!}
+                    title="Bookings Calendar"
+                    className="w-full h-full"
+                    style={{ border: 0 }}
+                    allow="clipboard-write; web-share; fullscreen;"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    loading="lazy"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {mounted && openHero &&
+        createPortal(
+          <div className="fixed inset-0 z-[2147483647]">
+            {/* transparent backdrop: click to close */}
+            <div className="absolute inset-0" onClick={() => setOpenHero(false)} />
+            {/* anchored to the RIGHT of the hero button */}
+            <div className="absolute" style={{ top: posHero.top, left: posHero.left }}>
+              <div
+                id="bookings-panel-hero"
+                role="dialog"
+                aria-label="Book a Live Demo"
+                className="rounded-xl border border-white/30 bg-white/95 shadow-xl backdrop-blur overflow-hidden"
+                style={{ width: `min(90vw, ${heroWidth}px)` }} // responsive width; prevents overflow
+              >
+                <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200">
+                  <div className="text-sm font-medium text-gray-700">Schedule a live demo</div>
+                  <button onClick={() => setOpenHero(false)} className="p-1 rounded-md hover:bg-gray-100" aria-label="Close">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="w-full h-[540px] sm:h-[560px]">
+                  <iframe
+                    src={bookingsUrl!}
+                    title="Bookings Calendar"
+                    className="w-full h-full"
+                    style={{ border: 0 }}
+                    allow="clipboard-write; web-share; fullscreen;"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    loading="lazy"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </header>
   );
 }
