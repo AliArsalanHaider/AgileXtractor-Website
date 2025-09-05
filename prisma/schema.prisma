@@ -1,21 +1,21 @@
+// prisma/schema.prisma
 generator client {
-  provider = "prisma-client-js"   // <-- remove custom `output`
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL") // pooled (POSTGRES_PRISMA_URL)
-  directUrl = env("DIRECT_URL")   // non-pooled (POSTGRES_URL_NON_POOLING)
+  url       = env("DATABASE_URL") // pooled (POSTGRES_PRISMA_URL on Vercel)
+  directUrl = env("DIRECT_URL")   // non-pooled (POSTGRES_URL_NON_POOLING on Vercel)
 }
 
 model Registration {
-  accountId        Int     @id @default(autoincrement()) @map("Account_ID")
-  email            String  @unique                       @map("Email_ID")
-  totalCredits     Int     @default(0)                   @map("Total_Credits")
-  consumedCredits  Int     @default(0)                   @map("Consumed_Credits")
-  remainingCredits Int     @default(0)                   @map("Remaining_Credits")
-  active           Boolean @default(true)                @map("Active")
+  accountId        Int      @id @default(autoincrement()) @map("Account_ID")
+  email            String   @unique                       @map("Email_ID")
+  totalCredits     Int      @default(0)                   @map("Total_Credits")
+  consumedCredits  Int      @default(0)                   @map("Consumed_Credits")
+  remainingCredits Int      @default(0)                   @map("Remaining_Credits")
+  active           Boolean  @default(true)                @map("Active")
 
-  @@map("credits") // <-- table name = credits
-  
+  @@map("credits") // the physical table name is "credits"
 }

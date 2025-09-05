@@ -1,12 +1,27 @@
 // lib/credits.ts
-import { prisma } from "./db";
+import { PrismaClient, Prisma } from "@prisma/client";
 
-export const TRIAL_CREDITS = 500;
-export const COST_PER_DOC = 100;
+// Reuse Prisma client in dev to avoid too many connections with HMR
+declare global {
+  // eslint-disable-next-line no-var
+  var __prisma__: PrismaClient | undefined;
+}
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const prisma =
+  global.__prisma__ ??
+  new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
+  });
 
-function toDTO(row: any) {
+if (process.env.NODE_ENV !== "production") global.__prisma__ = prisma;
+
+const STARTING_CREDITS = 500;
+const COST_PER_DOC = 100;
+
+const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+// Keep UI compatibility (camelCase + legacy keys)
+function expose(row: any) {
   return {
     accountId: row.accountId,
     email: row.email,
@@ -14,117 +29,134 @@ function toDTO(row: any) {
     consumedCredits: row.consumedCredits,
     remainingCredits: row.remainingCredits,
     active: row.active,
+
+    // legacy / sheet-like keys for existing UI
+    Account_ID: row.accountId,
+    Email_ID: row.email,
+    Total_Credits: row.totalCredits,
+    Consumed_Credits: row.consumedCredits,
+    Remaining_Credits: row.remainingCredits,
+    Active: row.active,
   };
 }
 
 export async function getStatus(email: string) {
+  if (!isValidEmail(email)) return null;
   const row = await prisma.registration.findUnique({ where: { email } });
-  return row ? toDTO(row) : null;
+  return row ? expose(row) : null;
 }
 
 export async function register(email: string) {
-  if (!EMAIL_RE.test(email)) {
-    const e: any = new Error("invalid_email");
-    e.code = "INVALID_EMAIL";
-    throw e;
+  if (!isValidEmail(email)) {
+    const err = new Error("invalid email");
+    (err as any).code = "INVALID_EMAIL";
+    throw err;
   }
 
-  // Create once with 500 trial; if exists, return as-is (no re-topup)
   const row = await prisma.registration.upsert({
     where: { email },
-    update: {}, // do not modify existing on re-register
+    update: {}, // do NOT reset credits if user already exists
     create: {
       email,
-      totalCredits: TRIAL_CREDITS,
+      totalCredits: STARTING_CREDITS,
       consumedCredits: 0,
-      remainingCredits: TRIAL_CREDITS,
+      remainingCredits: STARTING_CREDITS,
       active: true,
     },
   });
-  return toDTO(row);
+
+  return expose(row);
 }
 
-/**
- * Consume accepts either a fixed 'amount' or a 'docs' count (each 100).
- * Throws:
- *  - NO_ACCOUNT      (404)
- *  - INACTIVE        (403)
- *  - INSUFFICIENT    (402)
- *  - INVALID_AMOUNT  (400)
- */
-export async function consume(email: string, opts: { amount?: number; docs?: number }) {
-  if (!email) {
-    const e: any = new Error("email required");
-    e.code = "BAD_REQUEST";
-    throw e;
+export async function addPaidCredits(email: string, add: number) {
+  if (!isValidEmail(email)) {
+    const err = new Error("invalid email");
+    (err as any).code = "INVALID_EMAIL";
+    throw err;
+  }
+  if (!Number.isFinite(add) || add <= 0) {
+    const err = new Error("add must be > 0");
+    (err as any).code = "BAD_ADD";
+    throw err;
   }
 
-  let toConsume = 0;
-  if (typeof opts.amount === "number") toConsume = Math.max(0, Math.floor(opts.amount));
-  else if (typeof opts.docs === "number") toConsume = Math.max(0, Math.floor(opts.docs) * COST_PER_DOC);
+  const row = await prisma.registration.update({
+    where: { email },
+    data: {
+      totalCredits: { increment: add },
+      remainingCredits: { increment: add },
+    },
+  });
 
-  if (!Number.isFinite(toConsume) || toConsume <= 0) {
-    const e: any = new Error("invalid amount");
-    e.code = "INVALID_AMOUNT";
-    throw e;
+  return expose(row);
+}
+
+type ConsumeArg =
+  | number
+  | {
+      docs?: number;   // charges docs * 100 if amount not provided
+      amount?: number; // explicit amount to charge
+      ok?: boolean;    // if false => no charge (e.g., error path)
+    };
+
+export async function consume(email: string, arg: ConsumeArg) {
+  if (!isValidEmail(email)) {
+    const err = new Error("invalid email");
+    (err as any).code = "INVALID_EMAIL";
+    throw err;
   }
 
-  return await prisma.$transaction(async (tx) => {
-    const acc = await tx.registration.findUnique({ where: { email } });
-    if (!acc) {
-      const e: any = new Error("no account");
-      e.code = "NO_ACCOUNT";
-      throw e;
+  // Normalize args
+  let ok = true;
+  let amount = 0;
+
+  if (typeof arg === "number") {
+    amount = Math.max(0, Math.floor(arg));
+  } else {
+    ok = arg.ok !== false;
+    const docs = Math.max(0, Math.floor(arg.docs ?? 0));
+    const direct = Math.max(0, Math.floor(arg.amount ?? 0));
+    amount = direct > 0 ? direct : docs * COST_PER_DOC;
+  }
+
+  // No-op charge (e.g., client reported an error or zero docs)
+  if (!ok || amount <= 0) {
+    const row = await prisma.registration.findUnique({ where: { email } });
+    if (!row) {
+      const err = new Error("account not found");
+      (err as any).code = "NO_ACCOUNT";
+      throw err;
     }
-    if (!acc.active) {
-      const e: any = new Error("inactive");
-      e.code = "INACTIVE";
-      throw e;
+    return expose(row);
+  }
+
+  // Atomic charge with explicit TransactionClient type for TS
+  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const found = await tx.registration.findUnique({ where: { email } });
+    if (!found) {
+      const err = new Error("account not found");
+      (err as any).code = "NO_ACCOUNT";
+      throw err;
     }
-    if (acc.remainingCredits < toConsume) {
-      const e: any = new Error("insufficient");
-      e.code = "INSUFFICIENT";
-      throw e;
+    if (!found.active) {
+      const err = new Error("account inactive");
+      (err as any).code = "INACTIVE";
+      throw err;
+    }
+    if (found.remainingCredits < amount) {
+      const err = new Error("insufficient credits");
+      (err as any).code = "INSUFFICIENT";
+      throw err;
     }
 
     const updated = await tx.registration.update({
       where: { email },
       data: {
-        consumedCredits: { increment: toConsume },
-        remainingCredits: { decrement: toConsume },
+        consumedCredits: { increment: amount },
+        remainingCredits: { decrement: amount },
       },
     });
-    return toDTO(updated);
-  });
-}
 
-/** optional top-up for paid plans */
-export async function addPaidCredits(email: string, add: number) {
-  if (!email) {
-    const e: any = new Error("email required");
-    e.code = "BAD_REQUEST";
-    throw e;
-  }
-  if (!Number.isFinite(add) || add <= 0) {
-    const e: any = new Error("invalid amount");
-    e.code = "INVALID_AMOUNT";
-    throw e;
-  }
-
-  const row = await prisma.registration.upsert({
-    where: { email },
-    update: {
-      totalCredits: { increment: add },
-      remainingCredits: { increment: add },
-      active: true,
-    },
-    create: {
-      email,
-      totalCredits: TRIAL_CREDITS + add,
-      consumedCredits: 0,
-      remainingCredits: TRIAL_CREDITS + add,
-      active: true,
-    },
+    return expose(updated);
   });
-  return toDTO(row);
 }

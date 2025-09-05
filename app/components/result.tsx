@@ -1,3 +1,4 @@
+// app/components/result.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -15,6 +16,7 @@ export default function Result() {
   const [email, setEmail] = useState<string>("");
   const [credits, setCredits] = useState<{ remaining: number; total: number } | null>(null);
   const [hasRegistered, setHasRegistered] = useState(false);
+  const [registering, setRegistering] = useState(false); // NEW: register button loading
 
   // pan state for images
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -100,21 +102,26 @@ export default function Result() {
       return;
     }
     setError(null);
-    const r = await fetch("/api/credits/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
-    const j = await r.json().catch(() => ({} as any));
-    if (!r.ok) {
-      setError(j?.error || "Registration failed");
-      return;
-    }
+    setRegistering(true);
     try {
-      localStorage.setItem("agx_email", email);
-    } catch {}
-    setHasRegistered(true);
-    await refreshCredits(email);
+      const r = await fetch("/api/credits/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const j = await r.json().catch(() => ({} as any));
+      if (!r.ok) {
+        setError(j?.error || "Registration failed");
+        return;
+      }
+      try {
+        localStorage.setItem("agx_email", email);
+      } catch {}
+      setHasRegistered(true);
+      await refreshCredits(email);
+    } finally {
+      setRegistering(false);
+    }
   }
 
   // Restore saved email on mount
@@ -184,7 +191,7 @@ export default function Result() {
       // pre-check credits (avoid rendering results if <100)
       const c0 = await refreshCredits(email);
       if ((c0?.remaining ?? 0) < 100) {
-        setError("You’ve run out of credits. Please purchase a plan to continue.");
+        setError("All credits are consumed. Please purchase one of our plans.");
         return;
       }
 
@@ -214,7 +221,7 @@ export default function Result() {
       const remaining = c1?.remaining ?? 0;
       const affordableDocs = Math.floor(remaining / 100);
       if (affordableDocs <= 0) {
-        setError("You’ve run out of credits. Please purchase a plan to continue.");
+        setError("All credits are consumed. Please purchase one of our plans.");
         return;
       }
 
@@ -238,7 +245,7 @@ export default function Result() {
       if (!consumeRes.ok) {
         const j = await consumeRes.json().catch(() => ({}));
         if (consumeRes.status === 402 || j?.code === "INSUFFICIENT") {
-          setError("You’ve run out of credits. Please purchase a plan to continue.");
+          setError("All credits are consumed. Please purchase one of our plans.");
         } else if (consumeRes.status === 404 || j?.code === "NO_ACCOUNT") {
           setError("No account found. Please register first to get 500 trial credits.");
         } else {
@@ -381,15 +388,6 @@ export default function Result() {
     setDragging(false);
   };
 
-  const onWheelZoomExclusive: React.WheelEventHandler = (e) => {
-    if (!preview || isPdf) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const delta = -e.deltaY;
-    const step = delta > 0 ? 0.1 : -0.1;
-    setZoom((z) => Math.min(3.5, Math.max(0.25, Number((z + step).toFixed(2)))));
-  };
-
   useEffect(() => {
     if (zoom <= 1.001) setPan({ x: 0, y: 0 });
   }, [zoom]);
@@ -467,7 +465,7 @@ export default function Result() {
 
         {/* Foreground content */}
         <div className="relative z-10 flex flex-col h-full">
-          {/* Email + Register / Status (shows once; hides after register) */}
+          {/* Email + Register / Status */}
           {!hasRegistered && (
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <input
@@ -479,9 +477,10 @@ export default function Result() {
               />
               <button
                 onClick={handleRegister}
-                className="px-3 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700"
+                disabled={registering}
+                className="px-3 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-60"
               >
-                Register
+                {registering ? "Registering..." : "Register"}
               </button>
             </div>
           )}
@@ -544,7 +543,7 @@ export default function Result() {
                   </>
                 )}
 
-                {/* Fullscreen button (image -> overlay, PDF -> new tab) */}
+                {/* Fullscreen button */}
                 <button
                   onClick={openFullscreen}
                   className="ml-4 inline-flex items-left justify-left p-1.5 rounded-md bg-transparent text-white/90 border border-white/30 hover:bg-white/10 hover:border-white/50 transition shadow-none"
@@ -564,7 +563,7 @@ export default function Result() {
                 </button>
               </div>
 
-              {/* File preview frame — transparent so video shows */}
+              {/* File preview frame */}
               <div
                 ref={previewWrapRef}
                 className={[
@@ -574,8 +573,19 @@ export default function Result() {
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
-                onWheelCapture={onWheelZoomExclusive}
-                onWheel={onWheelZoomExclusive}
+                onWheelCapture={(e) => {
+                  if (!preview || isPdf) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const delta = -e.deltaY;
+                  const step = delta > 0 ? 0.1 : -0.1;
+                  setZoom((z) => Math.min(3.5, Math.max(0.25, Number((z + step).toFixed(2)))));
+                }}
+                onWheel={(e) => {
+                  if (!preview || isPdf) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
               >
                 {isPdf ? (
                   <iframe src={preview!} className="w-full h-full rounded-lg" title="PDF Preview" />
@@ -700,7 +710,7 @@ export default function Result() {
         )}
       </div>
 
-      {/* Fullscreen Modal for images (CUSTOM overlay) */}
+      {/* Fullscreen Modal for images */}
       {showFull && !isPdf && preview && (
         <div
           ref={fullRef}
@@ -737,7 +747,7 @@ export default function Result() {
             />
           </div>
 
-          {/* Bottom-center Close button (auto-hide) */}
+          {/* Bottom-center Close button */}
           <button
             onClick={() => setShowFull(false)}
             onMouseEnter={() => {
@@ -747,7 +757,7 @@ export default function Result() {
             }}
             onMouseLeave={() => {
               fsHoveringClose.current = false;
-              kickShowFsControls(); // start hide countdown again
+              kickShowFsControls();
             }}
             onFocus={() => setFsControlsVisible(true)}
             onBlur={() => kickShowFsControls()}
