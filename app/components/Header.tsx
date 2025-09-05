@@ -3,8 +3,34 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import React from "react";
 
 export default function Header() {
+  // Toggle inline calendar near the top-bar button
+  const [open, setOpen] = React.useState(false);
+  const panelRef = React.useRef<HTMLDivElement | null>(null);
+  const btnRef = React.useRef<HTMLButtonElement | null>(null);
+
+  // Your public Microsoft Bookings (or Outlook published calendar) URL
+  const bookingsUrl = process.env.NEXT_PUBLIC_CALENDAR_URL;
+
+  // Close the panel when clicking outside
+  React.useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target)) return;
+      if (btnRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+    };
+  }, [open]);
+
   return (
     <header className="relative isolate overflow-hidden bg-white">
       {/* ===== Background VIDEO across entire header ===== */}
@@ -36,12 +62,71 @@ export default function Header() {
             />
           </Link>
 
-          <Link
-            href="#contact"
-            className="inline-flex items-center justify-center rounded-lg bg-white px-4 py-2 text-sm font-semibold text-sky-500 hover:bg-sky-500 hover:text-white transition"
-          >
-            Book a Live Demo
-          </Link>
+          {/* Book a Live Demo (top bar) */}
+          <div className="relative">
+            {bookingsUrl ? (
+              <>
+                <button
+                  ref={btnRef}
+                  type="button"
+                  onClick={() => setOpen((v) => !v)}
+                  className="inline-flex items-center justify-center rounded-lg bg-white px-4 py-2 text-sm font-semibold text-sky-500 hover:bg-sky-500 hover:text-white transition"
+                  aria-haspopup="dialog"
+                  aria-expanded={open}
+                  aria-controls="bookings-panel"
+                >
+                  Book a Live Demo
+                </button>
+
+                {/* Inline calendar panel */}
+                {open && (
+                  <div
+                    id="bookings-panel"
+                    ref={panelRef}
+                    role="dialog"
+                    aria-label="Book a Live Demo"
+                    className="absolute right-0 mt-2 w-[380px] max-w-[90vw] rounded-xl border border-white/30 bg-white/95 shadow-xl backdrop-blur
+                               sm:w-[420px] sm:max-w-[92vw] lg:w-[480px] lg:max-w-[40rem] overflow-hidden z-50"
+                  >
+                    {/* Header row inside panel */}
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200">
+                      <div className="text-sm font-medium text-gray-700">Schedule a live demo</div>
+                      <button
+                        onClick={() => setOpen(false)}
+                        className="p-1 rounded-md hover:bg-gray-100"
+                        aria-label="Close"
+                      >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        </svg>
+                      </button>
+                    </div>
+
+                    {/* Iframe with Microsoft Bookings / Outlook calendar */}
+                    <div className="w-full h-[540px] sm:h-[560px]">
+                      <iframe
+                        src={bookingsUrl}
+                        title="Bookings Calendar"
+                        className="w-full h-full"
+                        style={{ border: 0 }}
+                        allow="clipboard-write; web-share; fullscreen;"
+                        referrerPolicy="no-referrer-when-downgrade"
+                        loading="lazy"
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <Link
+                href="#contact"
+                className="inline-flex items-center justify-center rounded-lg bg-white px-4 py-2 text-sm font-semibold text-sky-500 hover:bg-sky-500 hover:text-white transition"
+                title="Set NEXT_PUBLIC_CALENDAR_URL to enable inline calendar"
+              >
+                Book a Live Demo
+              </Link>
+            )}
+          </div>
         </div>
       </div>
 
@@ -68,6 +153,7 @@ export default function Header() {
               >
                 Free Trial
               </Link>
+              {/* Keep hero CTA unchanged per your request */}
               <Link
                 href="#contact"
                 className="inline-flex items-center rounded-lg bg-white px-5 py-2.5 text-sky-500 font-medium hover:bg-sky-500 hover:text-white transition"
@@ -77,7 +163,7 @@ export default function Header() {
             </div>
           </div>
 
-          {/* Right: Hero Image over video */}
+          {/* Right: Hero Image over video (stays behind the panel) */}
           <div className="relative flex justify-center md:justify-end">
             <Image
               src="/img on bg.png"
