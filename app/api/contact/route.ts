@@ -1,137 +1,125 @@
 // app/api/contact/route.ts
-import type { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 
-export const runtime = "nodejs";
+export const runtime = "nodejs";        // <-- important for nodemailer
+export const dynamic = "force-dynamic"; // don't cache
+export const revalidate = 0;
 
-const isDev = process.env.NODE_ENV !== "production";
+type Payload = {
+  name: string;
+  company?: string;
+  email: string;
+  areaCode?: string;
+  phone?: string;
+  message?: string;
+};
 
-export async function GET() {
-  // Quick health check
-  return Response.json({ ok: true, route: "alive" });
-}
-
-// Hit /api/contact/verify to only test SMTP login/STARTTLS.
-export async function HEAD() {
-  try {
-    const transporter = makeTransport();
-    await transporter.verify();
-    return new Response(null, { status: 204 });
-  } catch (e: any) {
-    return jsonErr("verify", e, 502);
-  }
-}
+const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s || "");
 
 export async function POST(req: NextRequest) {
+  let body: Payload;
   try {
-    const { name, company, email, areaCode, phone, message } = await req.json();
-
-    if (!name || !email) {
-      return new Response("Missing required fields: name, email", { status: 400 });
-    }
-
-    const user = process.env.EMAIL_USER;
-    const pass = process.env.EMAIL_PASSWORD;
-    const to = process.env.CONTACT_EMAIL || process.env.EMAIL_USER;
-
-    const missing = [
-      !user && "EMAIL_USER",
-      !pass && "EMAIL_PASSWORD",
-      !to && "CONTACT_EMAIL|EMAIL_USER",
-    ].filter(Boolean) as string[];
-
-    if (missing.length) {
-      const msg = `Missing env vars: ${missing.join(", ")}`;
-      return new Response(isDev ? msg : "Server not configured", { status: 500 });
-    }
-
-    const transporter = makeTransport();
-
-    // Fail fast with clear SMTP message
-    try {
-      await transporter.verify();
-    } catch (e: any) {
-      return jsonErr("verify", e, 502);
-    }
-
-    const html = `
-      <h2>New Contact Request</h2>
-      <p><strong>Name:</strong> ${esc(name)}</p>
-      <p><strong>Company:</strong> ${esc(company || "")}</p>
-      <p><strong>Email:</strong> ${esc(email)}</p>
-      <p><strong>Phone:</strong> ${esc(`${areaCode || ""} ${phone || ""}`)}</p>
-      <p><strong>Message:</strong></p>
-      <pre style="background:#f6f8fa;padding:12px;border-radius:8px;white-space:pre-wrap;">${esc(
-        message || ""
-      )}</pre>
-    `;
-
-    try {
-      await transporter.sendMail({
-        from: { name: "Website Contact", address: user! }, // must be the authenticated mailbox for many providers
-        to: to!,
-        subject: `New Contact: ${name}`,
-        replyTo: email,
-        html,
-      });
-    } catch (e: any) {
-      return jsonErr("sendMail", e, 502);
-    }
-
-    return Response.json({ ok: true });
-  } catch (e: any) {
-    return jsonErr("route", e, 500);
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-}
 
-/* ---------------- helpers ---------------- */
+  const {
+    name = "",
+    company = "",
+    email = "",
+    areaCode = "",
+    phone = "",
+    message = "",
+  } = body || ({} as Payload);
 
-function makeTransport() {
-  const host = process.env.EMAIL_HOST || "smtp.zoho.com";
-  const port = Number(process.env.EMAIL_PORT || 587);
-  const user = process.env.EMAIL_USER!;
-  const pass = process.env.EMAIL_PASSWORD!;
-
-  return nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465, // 465 = implicit TLS; 587/25 = STARTTLS
-    auth: { user, pass },
-    authMethod: "LOGIN",
-    tls: {
-      minVersion: "TLSv1.2",
-      ...(isDev ? { rejectUnauthorized: false } : {}),
-    },
-    logger: isDev,
-    debug: isDev,
-    connectionTimeout: 20_000,
-    greetingTimeout: 20_000,
-    socketTimeout: 30_000,
-  });
-}
-
-function esc(s: string) {
-  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
-function jsonErr(stage: "verify" | "sendMail" | "route", e: any, status: number) {
-  // In dev we return rich diagnostics to help you fix; in prod we hide details.
-  if (isDev) {
-    return Response.json(
-      {
-        ok: false,
-        stage,
-        message: e?.message || String(e),
-        code: e?.code,
-        command: e?.command,
-        response: e?.response, // SMTP server text (very useful)
-        responseCode: e?.responseCode,
-        stack: e?.stack,
-      },
-      { status }
+  if (!name.trim() || !isEmail(email)) {
+    return NextResponse.json(
+      { error: "Valid name and email are required" },
+      { status: 400 }
     );
   }
-  return new Response(stage === "verify" ? "Mail service unavailable" : "Failed to send", {
-    status,
+
+  // Read SMTP + addressing from env
+  const host = process.env.SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT || 0);
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const to = process.env.CONTACT_TO || process.env.SMTP_TO || user;
+  const from =
+    process.env.CONTACT_FROM ||
+    process.env.SMTP_FROM ||
+    (user ? `AgileXtract <${user}>` : undefined);
+
+  if (!host || !port || !user || !pass || !to || !from) {
+    // Fail gracefully so your client shows a clear toast
+    return NextResponse.json(
+      {
+        error:
+          "Contact service not configured. Set SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS and CONTACT_TO/CONTACT_FROM.",
+      },
+      { status: 500 }
+    );
+  }
+
+  const transporter = nodemailer.createTransport({
+    host,
+    port,
+    secure: port === 465, // true for 465, false for 587/25/etc.
+    auth: { user, pass },
   });
+
+  const subject = `New contact request from ${name}`;
+  const text = [
+    `Name: ${name}`,
+    `Company: ${company}`,
+    `Email: ${email}`,
+    `Phone: ${[areaCode, phone].filter(Boolean).join(" ")}`,
+    "",
+    "Message:",
+    message,
+  ].join("\n");
+
+  const html = `
+    <div style="font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;line-height:1.6">
+      <h2>New contact request</h2>
+      <p><b>Name:</b> ${escapeHtml(name)}</p>
+      <p><b>Company:</b> ${escapeHtml(company)}</p>
+      <p><b>Email:</b> ${escapeHtml(email)}</p>
+      <p><b>Phone:</b> ${escapeHtml(
+        [areaCode, phone].filter(Boolean).join(" ")
+      )}</p>
+      <p><b>Message:</b><br/>${escapeHtml(message).replace(/\n/g, "<br/>")}</p>
+    </div>
+  `;
+
+  try {
+    await transporter.sendMail({
+      from,
+      to,
+      subject,
+      text,
+      html,
+      replyTo: email, // so you can reply directly to the sender
+    });
+
+    // Your client only checks res.ok; still return a helpful body
+    return NextResponse.json({ ok: true }, { status: 200 });
+  } catch (err: any) {
+    console.error("contact route: sendMail failed", err);
+    return NextResponse.json(
+      { error: "Failed to send message. Please try again later." },
+      { status: 500 }
+    );
+  }
+}
+
+// tiny helper to avoid HTML injection in the email
+function escapeHtml(s: string) {
+  return (s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
