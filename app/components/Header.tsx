@@ -126,7 +126,7 @@ export default function Header() {
                   setPosTop(computeRightAnchoredPos(topBtnRef.current));
                   setOpenTop((v) => !v);
                 }}
-                className="inline-flex items-center justify-center rounded-lg bg-white px-4 py-2 text-sm font-semibold text-sky-500 hover:bg-sky-500 hover:text-white transition"
+                className="inline-flex items-center rounded-lg bg-white px-5 py-2.5 text-sky-500 font-medium hover:bg-sky-500 hover:text-white transition"
                 aria-haspopup="dialog"
                 aria-expanded={openTop}
                 aria-controls="bookings-panel-top"
@@ -135,8 +135,8 @@ export default function Header() {
               </button>
             ) : (
               <Link
-                href="#contact"
-                className="inline-flex items-center justify-center rounded-lg bg-white px-4 py-2 text-sm font-semibold text-sky-500 hover:bg-sky-500 hover:text-white transition"
+                href="#"
+                className="inline-flex items-center rounded-lg bg-white px-5 py-2.5 text-sky-500 font-medium hover:bg-sky-500 hover:text-white transition"
                 title="Set NEXT_PUBLIC_CALENDAR_URL to enable inline calendar"
               >
                 Book a Live Demo

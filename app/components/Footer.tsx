@@ -114,23 +114,24 @@ export default function Footer() {
                     <FooterLink href="/">Home</FooterLink>
                   </li>
                   <li className="flex items-center h-8">
-                    <FooterLink href="/features">Features</FooterLink>
+                    <FooterLink href="#EID">Features</FooterLink>
                   </li>
                   <li className="flex items-center h-8">
-                    <FooterLink href="/pricing">Pricing</FooterLink>
+                    <FooterLink href="#pricing">Pricing</FooterLink>
                   </li>
                 </ul>
                 <ul className="space-y-3 text-[15px] leading-6">
                   <li className="flex items-center h-8"></li>
                   <li className="flex items-center h-8">
-                    <FooterLink href="/contact">Contact Us</FooterLink>
+                    <FooterLink href="#contact">Contact Us</FooterLink>
+                  </li>
+                   <li className="flex items-center h-8">
+                    <FooterLink href="#test-drive">Document Extract</FooterLink>
                   </li>
                   <li className="flex items-center h-8">
-                    <FooterLink href="/privacy">Privacy Policy</FooterLink>
+                    <FooterLink href="/privacy-policy">Privacy Policy</FooterLink>
                   </li>
-                  <li className="flex items-center h-8">
-                    <FooterLink href="/terms">Terms of Service</FooterLink>
-                  </li>
+                 
                 </ul>
               </div>
             </div>

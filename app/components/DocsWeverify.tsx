@@ -88,17 +88,32 @@ function Row({ doc, index }: { doc: Doc; index: number }) {
   const BOX_W = "max-w-[660px]";
   const IMG_H = "h-[360px] sm:h-[540px]"; // uniform image height
 
-  const Text = (
-    <div className={`w-full ${BOX_W} pt-12 sm:pt-12`}>  {/* slight top offset */}
-      <h3 className="text-xl sm:text-3xl font-semibold text-gray-900">
-        {doc.title}
-      </h3>
-      {/* 14px + slightly bold */}
-      <p className="mt-6 sm:mt-8 sm:text-xl font-medium text-gray-800 leading-relaxed">
-        {doc.body}
-      </p>
+  // Inside Row() — replace the existing `Text` constant with this:
+const Text = (
+  <div className={`w-full ${BOX_W} pt-12 sm:pt-12`}>
+    <h3 className="text-xl sm:text-3xl font-semibold text-gray-900">
+      {doc.title}
+    </h3>
+    <p className="mt-6 sm:mt-8 sm:text-xl font-medium text-gray-800 leading-relaxed">
+      {doc.body}
+    </p>
+
+    {/* Learn More button */}
+    <div className="mt-6">
+      <a
+        href="#contact" // change this to your target (e.g., /docs/emirates-id) if needed
+        className="inline-block rounded-md px-4 py-2 font-medium
+                   border border-[#2BAEFF]
+                   bg-[#2BAEFF] text-white
+                   hover:bg-white hover:text-[#2BAEFF]
+                   transition-colors duration-200"
+      >
+        Learn More
+      </a>
     </div>
-  );
+  </div>
+);
+
 
   const Img = (
     <div className={`relative w-full ${BOX_W} ${IMG_H}`}>

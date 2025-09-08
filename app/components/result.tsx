@@ -612,7 +612,7 @@ export default function Result() {
                   disabled={loading}
                   className="w-full btn-blue hover:bg-blue-200 text-blue-800 font-medium py-2 rounded-lg shadow disabled:opacity-60"
                 >
-                  {loading ? "Extracting..." : "Upload & Extract"}
+                  {loading ? "Extracting..." : "Extract"}
                 </button>
               </div>
             </>
@@ -676,8 +676,6 @@ export default function Result() {
         </div>
 
         <div className="pb-3 border-b border-gray-300" />
-
-        <h2 className="text-2xl font-semibold text-brand-blue mb-5 mt-4">{docTitle}</h2>
 
         {error && (
           <div className="mb-4 rounded border border-red-300 bg-red-50 px-3 py-2 text-red-700">

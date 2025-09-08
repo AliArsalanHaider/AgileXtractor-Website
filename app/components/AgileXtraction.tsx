@@ -98,26 +98,27 @@ export default function AgileXtraction() {
 
         </div>
 
-        {/* Tags row (full width across section) */}
-        <div className="mt-14 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-          {TAGS.map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => handleTagClick(t)}
-              className={[
-                "rounded-xl border px-4 py-2 text-sm transition text-center w-full",
-                activeTag === t
-                  ? "border-sky-600 bg-sky-50 text-sky-700"
-                  : "border-gray-200 hover:border-gray-300",
-              ].join(" ")}
-              aria-pressed={activeTag === t}
-              aria-controls={TAG_TO_ID[t] ?? undefined}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
+       {/* Tags row (full width across section) */}
+<div className="mt-14 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+  {TAGS.map((t) => (
+    <button
+      key={t}
+      type="button"
+      onClick={() => handleTagClick(t)}
+      className={[
+        "rounded-xl border px-4 py-2 text-sm transition text-center w-full",
+        activeTag === t
+          ? "bg-white text-sky-500 border-sky-500 hover:bg-sky-500 hover:text-white" // selected
+          : "bg-white text-sky-500 border-sky-500 hover:bg-sky-500 hover:text-white", // default + hover
+      ].join(" ")}
+      aria-pressed={activeTag === t}
+      aria-controls={TAG_TO_ID[t] ?? undefined}
+    >
+      {t}
+    </button>
+  ))}
+</div>
+
 
         {/* Blurb */}
         <p className="mt-10 max-w-3xl mx-auto text-xl text-center text-gray-700">

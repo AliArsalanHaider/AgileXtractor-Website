@@ -2,7 +2,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, ShieldCheck, CreditCard, Globe } from "lucide-react";
 
 export default function Pricing() {
   const [yearly, setYearly] = useState(false);
@@ -67,11 +67,37 @@ export default function Pricing() {
     },
   ];
 
+  // Secure hosted checkout links (Stripe Payment Links recommended)
+  const checkoutLinks: Record<
+    string,
+    { monthly?: string; yearly?: string }
+  > = {
+    Basic: {
+      monthly: process.env.NEXT_PUBLIC_CHECKOUT_BASIC_MONTHLY,
+      yearly: process.env.NEXT_PUBLIC_CHECKOUT_BASIC_YEARLY,
+    },
+    Professional: {
+      monthly: process.env.NEXT_PUBLIC_CHECKOUT_PROFESSIONAL_MONTHLY,
+      yearly: process.env.NEXT_PUBLIC_CHECKOUT_PROFESSIONAL_YEARLY,
+    },
+    Enterprise: {
+      monthly: process.env.NEXT_PUBLIC_CHECKOUT_ENTERPRISE_MONTHLY,
+      yearly: process.env.NEXT_PUBLIC_CHECKOUT_ENTERPRISE_YEARLY,
+    },
+  };
+
+  // Choose the right secure link per plan & billing mode; fallback to #contact
+  const getCheckoutHref = (planName: string) => {
+    const mode = yearly ? "yearly" : "monthly";
+    const href = checkoutLinks[planName]?.[mode];
+    return href && href.length > 0 ? href : "#contact";
+  };
+
   return (
-    <section className="bg-white">
+    <section  id="pricing" className="bg-white">
       <div className="mx-auto max-w-6xl px-6 sm:px-8 py-12 sm:py-8">
         <h2 className="text-center text-3xl sm:text-5xl font-bold text-gray-900">
-          Powerful features for{" "}<br/>
+          Powerful features for <br />
           <span className="text-[#2BAEFF]">powerful creators</span>
         </h2>
         <p className="mt-3 text-center text-black">
@@ -103,43 +129,54 @@ export default function Pricing() {
 
         {/* Pricing cards */}
         <div className="mt-12 grid gap-6 lg:grid-cols-3">
-          {plans.map((plan) => (
-            <div
-              key={plan.name}
-              className={`rounded-2xl border p-6 shadow-sm flex flex-col ${
-                plan.highlight
-                  ? "bg-[#2BAEFF] text-white border-[#2BAEFF] scale-105"
-                  : "bg-white text-gray-900 border-gray-200"
-              }`}
-            >
-              <h3 className="text-xl font-semibold">{plan.name}</h3>
-              <p className="mt-4 text-4xl font-bold">
-                ${plan.price}
-                <span className="text-base font-medium"> /month</span>
-              </p>
-              <button
-                className={`mt-6 rounded-md px-4 py-2 text-center font-medium ${
+          {plans.map((plan) => {
+            const href = getCheckoutHref(plan.name);
+            const isLiveLink = href !== "#contact";
+
+            return (
+              <div
+                key={plan.name}
+                className={`rounded-2xl border p-6 shadow-sm flex flex-col ${
                   plan.highlight
-                    ? "bg-white text-[#2BAEFF] hover:bg-sky-50"
-                    : "bg-[#2BAEFF] text-white hover:bg-[#2BAEFF]"
+                    ? "bg-[#2BAEFF] text-white border-[#2BAEFF] scale-105"
+                    : "bg-white text-gray-900 border-gray-200"
                 }`}
               >
-                Get Started Now
-              </button>
-              <ul className="mt-6 space-y-3 flex-1">
-                {plan.features.map((feature) => (
-                  <li key={feature} className="flex items-start gap-2 text-sm">
-                    <CheckCircle2
-                      className={`h-5 w-5 ${
-                        plan.highlight ? "text-white" : "text-[#2BAEFF]"
-                      }`}
-                    />
-                    <span>{feature}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+                <h3 className="text-xl font-semibold">{plan.name}</h3>
+                <p className="mt-4 text-4xl font-bold">
+                  ${plan.price}
+                  <span className="text-base font-medium"> /month</span>
+                </p>
+
+                {/* Secure hosted checkout (opens in new tab). If link missing, route to #contact. */}
+                <a
+                  href={href}
+                  target={isLiveLink ? "_blank" : undefined}
+                  rel={isLiveLink ? "noopener noreferrer" : undefined}
+                  className={`mt-6 rounded-md px-4 py-2 text-center font-medium ${
+                    plan.highlight
+                      ? "bg-white text-[#2BAEFF] hover:bg-sky-50"
+                      : "bg-[#2BAEFF] text-white hover:bg-[#2BAEFF]"
+                  }`}
+                >
+                  Get Started Now
+                </a>
+
+                <ul className="mt-6 space-y-3 flex-1">
+                  {plan.features.map((feature) => (
+                    <li key={feature} className="flex items-start gap-2 text-sm">
+                      <CheckCircle2
+                        className={`h-5 w-5 ${
+                          plan.highlight ? "text-white" : "text-[#2BAEFF]"
+                        }`}
+                      />
+                      <span>{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
         </div>
       </div>
     </section>

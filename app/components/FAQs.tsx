@@ -119,7 +119,8 @@ export default function FAQs() {
           </div>
         </div>
 
-        {/* Subscribe row */}
+
+        {/* Subscribe row
         <div className="mt-12 grid gap-6 lg:grid-cols-2 lg:items-center">
           <div>
             <h3 className="text-sky-500 font-semibold">
@@ -151,7 +152,9 @@ export default function FAQs() {
               Subscribe
             </button>
           </form>
-        </div>
+        </div> */}
+
+        
       </div>
     </section>
   );
