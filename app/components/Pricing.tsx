@@ -46,9 +46,9 @@ export default function Pricing() {
     },
     {
       name: "Enterprise (Customized)",
-      price: yearly ? "Contact Us for Pricing" : "Contact Us for Pricing",
+      price: "Contact Us for Pricing",
       features: [
-        "100,000 credits",
+        "1000,000 credits",
         "English Extraction",
         "Arabic Extraction",
         "Arabic to English Translation (As per requirement)",
@@ -75,10 +75,7 @@ export default function Pricing() {
   ];
 
   // Secure hosted checkout links (Stripe Payment Links recommended)
-  const checkoutLinks: Record<
-    string,
-    { monthly?: string; yearly?: string }
-  > = {
+  const checkoutLinks: Record<string, { monthly?: string; yearly?: string }> = {
     Basic: {
       monthly: process.env.NEXT_PUBLIC_CHECKOUT_BASIC_MONTHLY,
       yearly: process.env.NEXT_PUBLIC_CHECKOUT_BASIC_YEARLY,
@@ -101,7 +98,7 @@ export default function Pricing() {
   };
 
   return (
-    <section  id="pricing" className="bg-white">
+    <section id="pricing" className="bg-white">
       <div className="mx-auto max-w-6xl px-6 sm:px-8 py-12 sm:py-8">
         <h2 className="text-center text-3xl sm:text-5xl font-bold text-gray-900">
           Powerful features for <br />
@@ -150,10 +147,16 @@ export default function Pricing() {
                 }`}
               >
                 <h3 className="text-xl font-semibold">{plan.name}</h3>
-                <p className="mt-4 text-4xl font-bold">
-                  ${plan.price}
-                  <span className="text-base font-medium"> /month</span>
-                </p>
+
+                {/* Price (numeric shows $ + /month, string shows just the text) */}
+                {typeof plan.price === "number" ? (
+                  <p className="mt-4 text-4xl font-bold">
+                    ${plan.price}
+                    <span className="text-base font-medium"> /month</span>
+                  </p>
+                ) : (
+                  <p className="mt-4 text-2xl font-semibold">{plan.price}</p>
+                )}
 
                 {/* Secure hosted checkout (opens in new tab). If link missing, route to #contact. */}
                 <a
