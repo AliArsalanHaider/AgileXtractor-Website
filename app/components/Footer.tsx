@@ -139,16 +139,16 @@ export default function Footer() {
             {/* Right: socials + contact */}
             <div className="lg:col-span-4">
               <div className="mb-2 flex h-8 items-center gap-3 lg:justify-end">
-                <Social href="https://youtube.com" label="YouTube">
+                <Social href="https://www.youtube.com/@agilemtech" label="YouTube">
                   <FaYoutube className="w-5 h-5"/>
                 </Social>
-                <Social href="https://facebook.com" label="Facebook">
+                <Social href="https://www.facebook.com/agile.mtech/" label="Facebook">
                   <FaFacebookF className="w-5 h-5" />
                 </Social>
-                <Social href="https://linkedin.com" label="LinkedIn">
+                <Social href="https://www.linkedin.com/company/agile-managex-technologies-llc/" label="LinkedIn">
                   <FaLinkedinIn className="w-5 h-5" />
                 </Social>
-                <Social href="https://instagram.com" label="Instagram">
+                <Social href="https://www.instagram.com/agile.mtech/" label="Instagram">
                   <FaInstagram className="w-5 h-5" />
                 </Social>
               </div>

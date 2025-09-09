@@ -27,13 +27,13 @@ const DOCS: Doc[] = [
   {
     title: "Passing Certificate",
     body:
-      "A Passing Certificate verifies that a vehicle satisfies technical & safety standards. Our parser extracts Status, Certificate Number, Inspection date/time and results summary so teams can automate compliance workflows instantly.",
+      "The Passing Certificate is issued by the UAE traffic authorities to confirm that a vehicle has passed the mandatory technical inspection. It includes key details such as vehicle information, test results, inspection date, certificate number, and validity period. AgileXtract extracts structured data from passing certificates with speed and precision — supporting faster processing for vehicle registration, insurance approvals, and fleet compliance. ",
     img: "/passing-aper.png",
   },
   {
     title: "Trade License",
     body:
-      "The Trade License identifies a business: Company Name, License Number, Issue/Expiry dates, Legal Form and permitted activities. AgileXtract normalizes fields for downstream systems (CRMs/ERPs) to cut errors and manual data entry.",
+      "The Trade License is an official document issued by UAE economic departments, authorizing businesses to operate legally within the region. It includes crucial information such as license number, company name, legal type, activities permitted, issue and expiry dates, and the registered address. AgileXtract accurately captures all key fields from trade licenses, enabling faster onboarding, compliance checks, and automation of business verification processes. ",
     img: "/trade-license.png",
   },
 ];

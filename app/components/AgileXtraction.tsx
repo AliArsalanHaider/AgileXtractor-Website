@@ -157,7 +157,7 @@ export default function AgileXtraction() {
       </div>
 
       
-        <div className="relative h-72">
+        <div className="relative h-766 sm:h-94 lg:h-[20rem]">
           {/* Background image */}
           <Image
             src="/frame02.png"
@@ -177,7 +177,7 @@ export default function AgileXtraction() {
               <div className="flex h-full items-center">
                 <div className="text-white">
                   <h4 className="text-3xl sm:text-4xl lg:text-3xl font-bold leading-tight">
-                    Extract Fields in under 5 Seconds
+                    Extract Fields in under 10 Seconds
                   </h4>
                   <p className="mt-3 text-white/90 text-base leading-relaxed w-full pr-8">
                     Validate your documents with AgileXtract’s smart text extractor that
