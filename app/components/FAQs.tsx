@@ -17,19 +17,23 @@ const FAQS: FaqItem[] = [
   },
   {
     q: "How accurate is the text extraction?",
-    a: "Our models are optimized for UAE documents and achieve high field-level precision. We also include confidence scores to help you route manual review when needed.",
+    a: "AgileXtract is trained specifically on UAE document formats and achieves high field-level accuracy using advanced OCR and AI models.",
   },
   {
     q: "How fast is the extraction process?",
-    a: "Most extractions complete in seconds. Bulk batches are processed in parallel so large jobs finish quickly.",
+    a: "The entire extraction process takes less than 10 seconds per document.",
   },
   {
     q: "Do I need technical expertise to use AgileXtract?",
-    a: "No. You can upload documents via the web UI. Developers can also use our API for full automation.",
+    a: "No — our webpage is drag and drop with instructions on each step as to how you can process documents, with No technical background is needed for the basic interface. ",
   },
   {
-    q: "How is my data handled?",
+    q: "How is my Data Handled?",
     a: "We use encrypted transit & storage, role-based access controls, and configurable data retention aligned to your compliance requirements.",
+  },
+    {
+    q: "How to extract text from a picture or a document?",
+    a: "With AgileXtract, extracting text from a picture or a document is simple. Just upload the document (JPG, PNG, or scanned PDF), and our AI-powered OCR will automatically detect the document type, read the text — including Arabic — and return the data in a clean, structured format. The entire process takes only a few seconds.",
   },
 ];
 

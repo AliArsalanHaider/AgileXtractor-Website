@@ -26,14 +26,14 @@ export default function PrivacyPolicyPage() {
             partners. This Privacy Policy outlines how we collect, use,
             disclose, and safeguard your information when you visit our website{" "}
             <Link
-              href="https://agileaihub.ai"
+              href="https://agilemtech.ae"
               className="text-sky-600 underline decoration-transparent hover:decoration-inherit"
               target="_blank"
               rel="noopener noreferrer"
             >
-              https://agileaihub.ai
+              https://agilemtech.ae
             </Link>{" "}
-            (the “Site”) or use our services. By accessing or using our Site,
+             or use our services. By accessing or using our Site,
             you agree to the terms of this Privacy Policy.
           </p>
 
@@ -194,7 +194,7 @@ export default function PrivacyPolicyPage() {
             <address className="mt-4 not-italic text-gray-700">
               Agile Managex Technologies
               <br />
-              Office 502-1, Apricot Tower, Dubai Silicon Oasis, Dubai
+              Office 2113 Silicon IT Tower Dubai Silicon Oasis UAE
               <br />
               <a href="mailto:info@agileaehub.ae" className="text-sky-600 underline decoration-transparent hover:decoration-inherit">
                 info@agileaehub.ae

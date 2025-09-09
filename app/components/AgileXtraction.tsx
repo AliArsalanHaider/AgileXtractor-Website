@@ -37,15 +37,21 @@ export default function AgileXtraction() {
   return (
     <section className="relative bg-white">
       {/* ===== AgileXtract: Title + Bullets + Preview + Tags ===== */}
-      <div className="mx-auto max-w-6xl px-4 py-10 lg:py-14">
-        <div className="grid gap-6 lg:grid-cols-2 lg:items-center">
-          {/* Copy */}
-          <div className="text-left">
-            {/* Heading with inline X image */}
-            <h2 className="text-2xl sm:text-6xl font-semibold tracking-tight mb-4 text-sky-400">
+      <div className="mx-auto max-w-7xl px-6 md:px-14 py-6 lg:py-12">
+      <div className="grid grid-cols-1 lg:grid-cols-2 items-center gap-6 lg:gap-14">
+        {/* Copy (left) */}
+        <div className="lg:pr-6">
+          {/* Heading with inline X image */}
+          <h2
+              className="
+                -mt-3 sm:-mt-4 lg:-mt-10   /* move up a bit */
+                mb-4                      /* slightly less space below (was mb-6) */
+                text-4xl sm:text-6xl font-semibold tracking-tight text-sky-400
+              "
+            >
               Agile
               <span
-                className="relative inline-block align-middle h-[1em] w-[1em] mx-0.2 bottom-[0.10em]"
+                className="relative inline-block align-middle h-[1em] w-[1em] mx-[0.0em] bottom-[0.10em]"
                 aria-label="X"
               >
                 <Image
@@ -60,64 +66,73 @@ export default function AgileXtraction() {
               tract
             </h2>
 
-            {/* Bullets (left-aligned) */}
-            <ul className="space-y-3 text-gray-700 text-left inline-block">
-              <li className="flex gap-3">
-                <span className="mt-2 h-1.5 w-1.5 rounded-full bg-sky-600"></span>
-                <span>Smart text extractor</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="mt-2 h-1.5 w-1.5 rounded-full bg-sky-600"></span>
-                <span>Key information</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="mt-2 h-1.5 w-1.5 rounded-full bg-sky-600"></span>
-                <span>UAE Government issued documents</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="mt-2 h-1.5 w-1.5 rounded-full bg-sky-600"></span>
-                <span>Arabic to English Translation</span>
-              </li>
-            </ul>
-          </div>
 
-          {/* Preview Image */}
-          <div className="relative">
-            <div className="relative rounded-2xl md:scale-[1.24] md:origin-right">
-              <Image
-                src="/emirates-id-extracted-data.png"
-                alt="Emirates ID extracted fields preview"
-                width={986}
-                height={434}
-                priority
-                className="h-auto w-full rounded-2xl"
-                sizes="(max-width: 1024px) 100vw, 48rem"
-              />
-            </div>
-          </div>
+          {/* Bullets (left-aligned) */}
+          <h3 className="text-lg sm:text-xl font-semibold text-gray-900">
+            Instantly capture data from UAE government-issued documents with built-in Arabic–English support.
+          </h3>
+          <p className="mt-4 sm:text-xl text-gray-700">
+            AgileXtract extracts fields from documents and images into clean, structured data in seconds,
+            eliminating manual entry, data errors, and reducing processing time. Designed for speed, accuracy,
+            and security, it helps businesses streamline operations and improve customer onboarding.
+            Our key features are:
+          </p>
 
+          <ul className="mt-6 space-y-4 text-gray-700 text-left">
+            <li className="flex gap-3 sm:text-xl">
+              <span className="mt-2.5 h-2 w-2 rounded-full bg-sky-600 shrink-0"></span>
+              <span>Arabic text extraction from image / document</span>
+            </li>
+            <li className="flex gap-3 sm:text-xl">
+              <span className="mt-2.5 h-2 w-2 rounded-full bg-sky-600 shrink-0"></span>
+              <span>English text extraction from image / document</span>
+            </li>
+            <li className="flex gap-3 sm:text-xl">
+              <span className="mt-2.5 h-2 w-2 rounded-full bg-sky-600 shrink-0"></span>
+              <span>Arabic to English Translation</span>
+            </li>
+          </ul>
         </div>
 
+        {/* Preview Image (right) */}
+        <div className="lg:pl-14">
+          <div className="relative rounded-2xl overflow-hidden lg:origin-right lg:scale-[1.25]">
+            <Image
+              src="/emirates-id-extracted-data.png"
+              alt="Emirates ID extracted fields preview"
+              width={986}
+              height={434}
+              priority
+              className="h-auto w-full"
+              sizes="(max-width: 1024px) 100vw, 44rem"
+            />
+          </div>
+        </div>
+
+      </div>
+
+
+
        {/* Tags row (full width across section) */}
-<div className="mt-14 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-  {TAGS.map((t) => (
-    <button
-      key={t}
-      type="button"
-      onClick={() => handleTagClick(t)}
-      className={[
-        "rounded-xl border px-4 py-2 text-sm transition text-center w-full",
-        activeTag === t
-          ? "bg-white text-sky-500 border-sky-500 hover:bg-sky-500 hover:text-white" // selected
-          : "bg-white text-sky-500 border-sky-500 hover:bg-sky-500 hover:text-white", // default + hover
-      ].join(" ")}
-      aria-pressed={activeTag === t}
-      aria-controls={TAG_TO_ID[t] ?? undefined}
-    >
-      {t}
-    </button>
-  ))}
-</div>
+        <div className="mt-14 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+          {TAGS.map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => handleTagClick(t)}
+              className={[
+                "rounded-xl border px-4 py-2 text-sm transition text-center w-full",
+                activeTag === t
+                  ? "bg-white text-sky-500 border-sky-500 hover:bg-sky-500 hover:text-white" // selected
+                  : "bg-white text-sky-500 border-sky-500 hover:bg-sky-500 hover:text-white", // default + hover
+              ].join(" ")}
+              aria-pressed={activeTag === t}
+              aria-controls={TAG_TO_ID[t] ?? undefined}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
 
 
         {/* Blurb */}

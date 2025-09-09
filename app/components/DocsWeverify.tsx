@@ -9,19 +9,19 @@ const DOCS: Doc[] = [
   {
     title: "Emirates ID (National ID Card)",
     body:
-      "The Emirates ID is the official identification issued by the UAE government. Our engine detects and extracts key fields such as ID Number, Full Name, Nationality and Date of Birth with high accuracy. It supports Arabic/English text and handles real-world image noise.",
+      "The Emirates ID is the official identification card issued by the UAE government to citizens and residents. It contains personal details such as name, nationality, date of birth, ID number, and more. AgileXtract accurately extracts text from image capturing all key fields from the Emirates ID — including both front and back sides — to help businesses automate identity verification, onboarding, and compliance processes with ease.  ",
     img: "/emirates-id-sample%205.png",
   },
   {
     title: "Driving License",
     body:
-      "The UAE Driving License contains vital legal details: License Number, Full Name, Date of Birth, Issue and Expiry dates, Place of Issue and Nationality. AgileXtract reads both Arabic and English fields reliably—even when scans are low-contrast.",
+      "The UAE Driving License serves as both a legal permit to drive and a widely accepted form of identification. It includes critical information such as license number, name, date of birth, issue and expiry dates, categories, and place of issue. AgileXtract extracts all key fields from UAE driving license and helps you translate image text with high accuracy, enabling seamless data entry for insurance claims, rentals, identity verification, and more. ",
     img: "/driving%20-license.png",
   },
   {
     title: "Vehicle License",
     body:
-      "The Vehicle License (Mulkiya) is the official registration document for a vehicle. We capture Plate Number, Chassis Number, Engine details, Category/Class and Owner info. Built-in validation reduces manual review and speeds up onboarding.",
+      "The Vehicle License, commonly known as Mulkiya, is the official registration document for vehicles in the UAE. It contains important details such as vehicle owner information, registration number, chassis number, vehicle type, plate number, and expiry date. AgileXtract quickly extracts text from image including all relevant data from the Mulkiya, helping businesses in insurance, transportation, and leasing streamline their workflows and reduce manual entry errors. ",
     img: "/vehical-license.png",
   },
   {
