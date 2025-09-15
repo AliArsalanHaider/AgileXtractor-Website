@@ -2,13 +2,15 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, ShieldCheck, CreditCard, Globe } from "lucide-react";
+import Image from "next/image";
+import { CheckCircle2 } from "lucide-react";
 
 export default function Pricing() {
   const [yearly, setYearly] = useState(false);
 
   const plans = [
     {
+      id: "basic",
       name: "Basic",
       price: yearly ? 45 : 45,
       features: [
@@ -24,6 +26,7 @@ export default function Pricing() {
       highlight: false,
     },
     {
+      id: "professional",
       name: "Professional",
       price: yearly ? 249 : 299,
       features: [
@@ -45,6 +48,7 @@ export default function Pricing() {
       highlight: true,
     },
     {
+      id: "enterprise",
       name: "Enterprise (Customized)",
       price: "Contact Us for Pricing",
       features: [
@@ -74,27 +78,28 @@ export default function Pricing() {
     },
   ];
 
-  // Secure hosted checkout links (Stripe Payment Links recommended)
+  // Secure hosted checkout links (Stripe Payment Links)
   const checkoutLinks: Record<string, { monthly?: string; yearly?: string }> = {
-    Basic: {
+    basic: {
       monthly: process.env.NEXT_PUBLIC_CHECKOUT_BASIC_MONTHLY,
       yearly: process.env.NEXT_PUBLIC_CHECKOUT_BASIC_YEARLY,
     },
-    Professional: {
+    professional: {
       monthly: process.env.NEXT_PUBLIC_CHECKOUT_PROFESSIONAL_MONTHLY,
       yearly: process.env.NEXT_PUBLIC_CHECKOUT_PROFESSIONAL_YEARLY,
     },
-    Enterprise: {
-      monthly: process.env.NEXT_PUBLIC_CHECKOUT_ENTERPRISE_MONTHLY,
-      yearly: process.env.NEXT_PUBLIC_CHECKOUT_ENTERPRISE_YEARLY,
-    },
+    // enterprise handled separately (meeting link)
   };
 
-  // Choose the right secure link per plan & billing mode; fallback to #contact
-  const getCheckoutHref = (planName: string) => {
+  // Choose the right secure link per plan & billing mode; fallback to /checkout
+  const getHref = (planId: string) => {
+    if (planId === "enterprise") {
+      const meeting = process.env.NEXT_PUBLIC_CALENDAR_URL;
+      return meeting && meeting.length > 0 ? meeting : "#contact";
+    }
     const mode = yearly ? "yearly" : "monthly";
-    const href = checkoutLinks[planName]?.[mode];
-    return href && href.length > 0 ? href : "#contact";
+    const href = checkoutLinks[planId]?.[mode];
+    return href && href.startsWith("http") ? href : `/checkout?plan=${planId}&cycle=${mode}`;
   };
 
   return (
@@ -126,20 +131,30 @@ export default function Pricing() {
           <span className={yearly ? "font-semibold text-gray-900" : "text-gray-500"}>
             Pay Yearly
           </span>
+
+          {/* When yearly is ON, show the image slightly lower (replaces "Save 25%") */}
           {yearly && (
-            <span className="ml-2 text-[#2BAEFF] text-sm font-medium">Save 25%</span>
+            <div className="ml-2 relative top-2">
+              <Image
+                src="/save25prcent.png" // place this file in /public
+                alt="Save 25%"
+                width={120}
+                height={40}
+                priority
+              />
+            </div>
           )}
         </div>
 
         {/* Pricing cards */}
         <div className="mt-12 grid gap-6 lg:grid-cols-3">
           {plans.map((plan) => {
-            const href = getCheckoutHref(plan.name);
-            const isLiveLink = href !== "#contact";
+            const href = getHref(plan.id);
+            const isExternal = href.startsWith("http");
 
             return (
               <div
-                key={plan.name}
+                key={plan.id}
                 className={`rounded-2xl border p-6 shadow-sm flex flex-col ${
                   plan.highlight
                     ? "bg-[#2BAEFF] text-white border-[#2BAEFF] scale-105"
@@ -158,11 +173,14 @@ export default function Pricing() {
                   <p className="mt-4 text-2xl font-semibold">{plan.price}</p>
                 )}
 
-                {/* Secure hosted checkout (opens in new tab). If link missing, route to #contact. */}
+                {/* Buttons:
+                    - Basic/Professional: Stripe Payment Link (new tab) or fallback to /checkout
+                    - Enterprise: Meeting link (calendar URL or #contact)
+                 */}
                 <a
                   href={href}
-                  target={isLiveLink ? "_blank" : undefined}
-                  rel={isLiveLink ? "noopener noreferrer" : undefined}
+                  target={isExternal ? "_blank" : undefined}
+                  rel={isExternal ? "noopener noreferrer" : undefined}
                   className={`mt-6 rounded-md px-4 py-2 text-center font-medium ${
                     plan.highlight
                       ? "bg-white text-[#2BAEFF] hover:bg-sky-50"

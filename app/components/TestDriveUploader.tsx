@@ -78,9 +78,9 @@ export default function TestDriveUploader({ onSampleSelect }: Props) {
   return (
     // 🔗 Anchor target for in-page links like href="#test-drive"
     <section id="test-drive" className="bg-white scroll-mt-2">
-      <div className="mx-auto max-w-6xl px-8 py-12 sm:py-16">
+      <div className="mx-auto max-w-6xl px-8 py-8 sm:py-6">
         {/* Heading */}
-        <h2 className="text-center text-3xl sm:text-6xl font-bold text-[#2BAEFF] px-8 py-18">
+        <h2 className="text-center text-3xl sm:text-6xl font-bold text-[#2BAEFF] mx:px-8 py-10">
           Test-drive AgileXtract’s Document AI
         </h2>
         <p className="mt-3 text-xl sm:text-1xl text-center text-gray-700">

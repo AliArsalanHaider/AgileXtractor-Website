@@ -45,7 +45,7 @@ export default function FAQs() {
 
   return (
     <section className="bg-white">
-      <div className="mx-auto max-w-6xl px-6 sm:px-8 py-12 sm:py-16">
+      <div className="mx-auto max-w-6xl px-6 sm:px-8 py-10 sm:py-16">
         {/* Eyebrow + Title */}
         <p className="text-center text-xs tracking-[0.2em] text-gray-500">
           QUESTIONS &amp; ANSWERS

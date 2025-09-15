@@ -7,40 +7,16 @@ import { FiMail, FiPhone, FiMapPin } from "react-icons/fi";
 import { FaYoutube, FaFacebookF, FaLinkedinIn, FaInstagram } from "react-icons/fa";
 
 export default function Footer() {
-  const CAP_D =
-    "M0,40 a50,40 0 0 0 40,40 L 575,80 a75,160 0 0 1 40,40 a40,80 0 0 0 30,40 L 1160,160 a50,90 0 0 0 38,-40 a40,50 0 0 1 40,-40 L 1200,80 L 1200,240 L 0,240 Z";
-
-  const capMaskSvg = encodeURIComponent(`
-    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 240' preserveAspectRatio='none'>
-      <rect width='1200' height='240' fill='black'/>
-      <path d='${CAP_D}' fill='white'/>
-    </svg>
-  `);
-
   return (
     <footer className="relative text-white overflow-hidden">
-      {/* ---- Curved cap + Robot ---- */}
-      <div className="relative bg-white">
-        <svg
-          viewBox="0 0 1200 240"
-          preserveAspectRatio="none"
+      {/* ---- Top band (plain white) + Robot ---- */}
+      <div className="relative bg-white ">
+        {/* same height as before, just a plain white band */}
+        <div
           className="relative block w-full h-[170px] md:h-[190px] lg:h-[210px] z-10"
           aria-hidden="true"
-        >
-          <path d={CAP_D} fill="#0B3658" />
-        </svg>
-
-        <div
-          className="pointer-events-none absolute inset-x-0 top-0 z-20 h-[170px] md:h-[190px] lg:h-[210px]"
-          style={{
-            WebkitMaskImage: `url("data:image/svg+xml;utf8,${capMaskSvg}")`,
-            maskImage: `url("data:image/svg+xml;utf8,${capMaskSvg}")`,
-            WebkitMaskRepeat: "no-repeat",
-            maskRepeat: "no-repeat",
-            WebkitMaskSize: "100% 100%",
-            maskSize: "100% 100%",
-          }}
-        >
+        />
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-[170px] md:h-[190px] lg:h-[210px]">
           <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-[170px] md:h-[190px] lg:h-[210px]">
             <Image
               src="/robot.png"
@@ -54,7 +30,8 @@ export default function Footer() {
       </div>
 
       {/* ---- Main blue footer; video behind ---- */}
-      <div className="relative overflow-hidden bg-[#0B3658]">
+      <div className="relative overflow-hidden bg-[#0B3658]
+                      -mt-[100px] md:-mt-[140px] lg:-mt-[160px]">
         <video
           src="/God%20rays%20new.mp4"
           className="absolute inset-0 w-full h-full object-cover object-top"
@@ -62,11 +39,10 @@ export default function Footer() {
           muted
           loop
           playsInline
+          /* remove top fade so background reaches up to robot band */
           style={{
-            WebkitMaskImage:
-              "linear-gradient(to bottom, rgba(0,0,0,0) 0, rgba(0,0,0,0) 56px, rgba(0,0,0,1) 96px, rgba(0,0,0,1) 100%)",
-            maskImage:
-              "linear-gradient(to bottom, rgba(0,0,0,0) 0, rgba(0,0,0,0) 56px, rgba(0,0,0,1) 96px, rgba(0,0,0,1) 100%)",
+            WebkitMaskImage: "none",
+            maskImage: "none",
           }}
         />
         <div className="absolute inset-0 bg-[#0B3658]/70" />
@@ -84,7 +60,8 @@ export default function Footer() {
         </div>
 
         {/* ===== CONTENT ===== */}
-        <div className="relative z-10 mx-auto max-w-[1280px] 2xl:max-w-[1560px] px-5 sm:px-8 pt-4 pb-10">
+        <div className="relative z-10 mx-auto max-w-[1280px] 2xl:max-w-[1560px] px-5 sm:px-8
+                        pt-[170px] md:pt-[190px] lg:pt-[210px] pb-10">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             {/* Left: logo + slogan */}
             <div className="lg:col-span-4 relative z-20 -mt-2 md:-mt-3 lg:-mt-4">
@@ -125,13 +102,12 @@ export default function Footer() {
                   <li className="flex items-center h-8">
                     <FooterLink href="#contact">Contact Us</FooterLink>
                   </li>
-                   <li className="flex items-center h-8">
+                  <li className="flex items-center h-8">
                     <FooterLink href="#test-drive">Document Extract</FooterLink>
                   </li>
                   <li className="flex items-center h-8">
                     <FooterLink href="/privacy-policy">Privacy Policy</FooterLink>
                   </li>
-                 
                 </ul>
               </div>
             </div>
@@ -214,5 +190,3 @@ function Social({
     </Link>
   );
 }
-
-

@@ -14,7 +14,7 @@ import ContactSection from "@/app/components/ContactSection";
 
 export default function Page() {
   return (
-    <main className="min-h-screen bg-gray-200 w-full">
+    <main className=" bg-gray-200 w-full">
       <Header />
       <AgileExtractSection />
       <DocsWeverify />

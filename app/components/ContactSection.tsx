@@ -90,11 +90,12 @@ export default function ContactSection() {
   return (
     // Anchor + small offset if you have a sticky header
     <section id="contact" className="bg-white scroll-mt-10">
-      <div className="mx-auto max-w-6xl px-6 sm:px-8 py-14">
+      <div className="mx-auto max-w-6xl px-6 sm:px-8 py-10">
         <div className="grid gap-10 lg:grid-cols-2">
           {/* LEFT: Copy + details */}
           <div>
-            <h2 className="text-5xl sm:text-6xl font-bold text-sky-500">Get in Touch</h2>
+            <h2 className="text-5xl sm:text-6xl font-bold text-
+            sky-500">Get in Touch</h2>
 
             <h3 className="mt-8 text-3xl font-semibold text-gray-900">
               Ready to streamline your document processing?

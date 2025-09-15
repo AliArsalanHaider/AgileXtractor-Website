@@ -27,7 +27,7 @@ const DOCS: Doc[] = [
   {
     title: "Passing Certificate",
     body:
-      "The Passing Certificate is issued by the UAE traffic authorities to confirm that a vehicle has passed the mandatory technical inspection. It includes key details such as vehicle information, test results, inspection date, certificate number, and validity period. AgileXtract extracts structured data from passing certificates with speed and precision, supporting faster processing for vehicle registration, insurance approvals, and fleet compliance. ",
+      "The Passing Certificate is issued by the UAE traffic authorities to confirm that a vehicle has passed the mandatory technical inspection. It includes key details such as vehicle information, test results, inspection date, certificate number, and validity period. AgileXtract extracts structured data from passing certificates with speed and precision — supporting faster processing for vehicle registration, insurance approvals, and fleet compliance. ",
     img: "/passing-aper.png",
   },
   {
@@ -50,25 +50,20 @@ const SECTION_IDS: Record<string, string> = {
 export default function DocsWeverify() {
   return (
     <section className="bg-white">
-      <div className="mx-auto max-w-8xl px-10 pt-8 sm:pt-16 pb-0 sm:pb-0">
-        <h2 className="text-center text-4xl sm:text-6xl font-semibold text-[#2BAEFF]">
+      <div className="mx-auto max-w-screen-2xl px-4 sm:px-6 lg:px-10 xl:px-12 2xl:px-16 pt-8 sm:pt-16 pb-0">
+        <h2 className="text-center text-3xl sm:text-5xl lg:text-6xl font-semibold text-[#2BAEFF]">
           Identity Documents We Verify
         </h2>
 
-        <div className="mt-10 mb-[-120px] sm:mb-[-200px]">
+        {/* CONSISTENT VERTICAL SPACING ACROSS ALL BREAKPOINTS */}
+        <div className="mt-10 sm:mt-12 space-y-16 md:space-y-20 lg:space-y-0 xl:space-y-0 2xl:space-y-32">
           {DOCS.map((doc, idx) => {
             const id = SECTION_IDS[doc.title] ?? `doc-${idx + 1}`;
             return (
               <div
                 key={idx}
                 id={id}
-                className={[
-                  // keep your existing overlap spacing
-                  idx === 0 ? "" : "-mt-16 sm:-mt-20 md:-mt-24 lg:-mt-28 xl:-mt-32",
-                  idx === DOCS.length - 1 ? "-mb-24 sm:-mb-32 md:-mb-40" : "",
-                  // smooth anchor offset for fixed headers
-                  "scroll-mt-28 md:scroll-mt-36",
-                ].join(" ")}
+                className="scroll-mt-28 md:scroll-mt-36"
               >
                 <Row doc={doc} index={idx} />
               </div>
@@ -84,61 +79,60 @@ function Row({ doc, index }: { doc: Doc; index: number }) {
   // 1,3,5 => text|image ; 2,4 => image|text
   const textLeft = index % 2 === 0;
 
-  // Consistent inner dimensions so everything lines up
-  const BOX_W = "max-w-[660px]";
-  const IMG_H = "h-[360px] sm:h-[540px]"; // uniform image height
+  // Responsive inner sizing (friendly up to 2xl/large desktops)
+  const BOX_W = "w-full max-w-[660px] 2xl:max-w-[760px]";
+  const IMG_H =
+    "h-[260px] sm:h-[360px] md:h-[420px] lg:h-[480px] xl:h-[540px] 2xl:h-[600px]";
 
-  // Inside Row() — replace the existing `Text` constant with this:
-const Text = (
-  <div className={`w-full ${BOX_W} pt-12 sm:pt-12`}>
-    <h3 className="text-xl sm:text-3xl font-semibold text-gray-900">
-      {doc.title}
-    </h3>
-    <p className="mt-6 sm:mt-8 sm:text-xl font-medium text-gray-800 leading-relaxed">
-      {doc.body}
-    </p>
+  const Text = (
+    <div className={`${BOX_W} pt-0 sm:pt-0 md:pt-0`}>
+      <h3 className="text-lg sm:text-2xl md:text-3xl font-semibold text-gray-900">
+        {doc.title}
+      </h3>
+      <p className="mt-4 sm:mt-6 md:mt-8 text-base sm:text-lg md:text-xl font-medium text-gray-800 leading-relaxed">
+        {doc.body}
+      </p>
 
-    {/* Learn More button */}
-    <div className="mt-6">
-      <a
-        href="#contact" // change this to your target (e.g., /docs/emirates-id) if needed
-        className="inline-block rounded-md px-4 py-2 font-medium
-                   border border-[#2BAEFF]
-                   bg-[#2BAEFF] text-white
-                   hover:bg-white hover:text-[#2BAEFF]
-                   transition-colors duration-200"
-      >
-        Learn More
-      </a>
+      {/* Learn More button */}
+      <div className="mt-6">
+        <a
+          href="#contact" // change to a specific route if needed
+          className="inline-block rounded-md px-4 py-2 font-medium
+                     border border-[#2BAEFF]
+                     bg-[#2BAEFF] text-white
+                     hover:bg-white hover:text-[#2BAEFF]
+                     transition-colors duration-200"
+        >
+          Learn More
+        </a>
+      </div>
     </div>
-  </div>
-);
-
+  );
 
   const Img = (
-    <div className={`relative w-full ${BOX_W} ${IMG_H}`}>
+    <div className={`relative ${BOX_W} ${IMG_H}`}>
       <Image
         src={doc.img}
         alt={doc.title}
         fill
         className="object-contain"
-        sizes="(max-width: 1024px) 90vw, 760px"
+        sizes="(max-width: 768px) 92vw, (max-width: 1280px) 46vw, (max-width: 1536px) 42vw, 780px"
         priority
       />
     </div>
   );
 
   return (
-    <div className="grid items-start gap-3 md:grid-cols-2">
+    <div className="grid grid-cols-1 md:grid-cols-2 items-center gap-8 md:gap-10 lg:gap-12 xl:gap-16 2xl:gap-20">
       {textLeft ? (
         <>
-          <div className="flex justify-start">{Text}</div>
-          <div className="flex justify-end">{Img}</div>
+          <div className="flex justify-start lg:pr-6 xl:pr-8">{Text}</div>
+          <div className="flex justify-end lg:pl-6 xl:pl-8">{Img}</div>
         </>
       ) : (
         <>
-          <div className="flex justify-start">{Img}</div>
-          <div className="flex justify-end">{Text}</div>
+          <div className="flex justify-start lg:pr-6 xl:pr-8">{Img}</div>
+          <div className="flex justify-end lg:pl-6 xl:pl-8">{Text}</div>
         </>
       )}
     </div>
