@@ -1,41 +1,24 @@
 "use client";
 
 import { PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 export default function CheckoutForm({
   email,
   planId,
   cycle,
-  clientSecret,
-  mode, // "payment" | "setup"
+  setupClientSecret,
 }: {
   email: string;
-  planId: string;
-  cycle: string;
-  clientSecret: string;
-  mode: "payment" | "setup";
+  planId: "basic" | "professional";
+  cycle: "monthly" | "yearly";
+  setupClientSecret: string;
 }) {
   const stripe = useStripe();
   const elements = useElements();
 
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [showSuccess, setShowSuccess] = useState(false);
-
-  // Check status after returning from 3DS / redirect
-  useEffect(() => {
-    (async () => {
-      if (!stripe || !clientSecret) return;
-      if (mode === "payment") {
-        const { paymentIntent } = await stripe.retrievePaymentIntent(clientSecret);
-        if (paymentIntent?.status === "succeeded") setShowSuccess(true);
-      } else {
-        const { setupIntent } = await stripe.retrieveSetupIntent(clientSecret);
-        if (setupIntent?.status === "succeeded") setShowSuccess(true);
-      }
-    })();
-  }, [stripe, clientSecret, mode]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,33 +27,56 @@ export default function CheckoutForm({
     setSubmitting(true);
     setMessage(null);
 
-    if (mode === "payment") {
-      const { error } = await stripe.confirmPayment({
-        elements,
-        confirmParams: {
-          return_url: `${window.location.origin}/checkout/success?plan=${planId}&cycle=${cycle}`,
-          receipt_email: email,
-        },
-      });
-      if (error) setMessage(error.message || "Payment failed. Please try again.");
+    // 1) Confirm the SetupIntent (collect and save card)
+    const setupRes = await stripe.confirmSetup({
+      elements,
+      confirmParams: {
+        return_url: `${window.location.origin}/checkout/success?plan=${planId}&cycle=${cycle}`,
+      },
+      redirect: "if_required",
+    });
 
-      // If no redirect was needed and it’s already confirmed:
-      const { paymentIntent } = await stripe.retrievePaymentIntent(clientSecret);
-      if (paymentIntent?.status === "succeeded") setShowSuccess(true);
-    } else {
-      const { error } = await stripe.confirmSetup({
-        elements,
-        confirmParams: {
-          return_url: `${window.location.origin}/checkout/success?plan=${planId}&cycle=${cycle}`,
-        },
-      });
-      if (error) setMessage(error.message || "Card setup failed. Please try again.");
-
-      const { setupIntent } = await stripe.retrieveSetupIntent(clientSecret);
-      if (setupIntent?.status === "succeeded") setShowSuccess(true);
+    if (setupRes.error) {
+      setMessage(setupRes.error.message || "Card setup failed. Please try again.");
+      setSubmitting(false);
+      return;
     }
 
-    setSubmitting(false);
+    // Get the payment_method id from the SetupIntent
+    const setupIntent = setupRes.setupIntent;
+    const paymentMethodId = (setupIntent?.payment_method as string) || "";
+
+    if (!paymentMethodId) {
+      setMessage("No payment method was created. Please try again.");
+      setSubmitting(false);
+      return;
+    }
+
+    // 2) Create the subscription with that saved card
+    const actRes = await fetch("/api/activate-subscription", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, planId, cycle, paymentMethodId }),
+    });
+    const actData = await actRes.json();
+    if (!actRes.ok) {
+      setMessage(actData.error || "Failed to activate subscription.");
+      setSubmitting(false);
+      return;
+    }
+
+    // 3) If 3DS is required now, confirm the PaymentIntent
+    if (actData.requiresActionClientSecret) {
+      const confirmRes = await stripe.confirmCardPayment(actData.requiresActionClientSecret);
+      if (confirmRes.error) {
+        setMessage(confirmRes.error.message || "Authentication failed. Please try again.");
+        setSubmitting(false);
+        return;
+      }
+    }
+
+    // Success — go to your success page
+    window.location.href = "/checkout/success";
   };
 
   return (
@@ -81,31 +87,10 @@ export default function CheckoutForm({
           disabled={submitting || !stripe || !elements}
           className="w-full rounded-xl bg-[#2BAEFF] px-6 py-3 font-semibold text-white hover:opacity-95 disabled:opacity-50"
         >
-          {submitting ? (mode === "payment" ? "Processing…" : "Saving card…") : (mode === "payment" ? "Pay now" : "Save card")}
+          {submitting ? "Processing…" : "Save card & subscribe"}
         </button>
         {message && <p className="text-sm text-red-600">{message}</p>}
       </div>
-
-      {showSuccess && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-xl">
-            <h3 className="text-2xl font-bold text-gray-900">
-              {mode === "payment" ? "Payment successful 🎉" : "Card saved 🎉"}
-            </h3>
-            <p className="mt-2 text-gray-600">
-              {mode === "payment"
-                ? <>A receipt has been sent to <span className="font-medium">{email}</span>.</>
-                : <>Your card is on file. We’ll charge it automatically when payment is due.</>}
-            </p>
-            <a
-              href="/"
-              className="mt-6 inline-block rounded-xl bg-[#2BAEFF] px-6 py-3 font-semibold text-white"
-            >
-              Continue
-            </a>
-          </div>
-        </div>
-      )}
     </form>
   );
 }

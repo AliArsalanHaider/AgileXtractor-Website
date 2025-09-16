@@ -7,7 +7,8 @@ import { Elements } from "@stripe/react-stripe-js";
 import { loadStripe, type StripeElementsOptions } from "@stripe/stripe-js";
 import CheckoutForm from "@/app/components/CheckoutForm";
 
-export const dynamic = "force-dynamic"; // prevent prerender errors with useSearchParams
+export const dynamic = "force-dynamic"; // fixes SSR+useSearchParams build error on Vercel
+
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLIC_KEY!);
 
 export default function Page() {
@@ -24,15 +25,14 @@ function CheckoutPageInner() {
   const cycle = (params.get("cycle") ?? "monthly") as "monthly" | "yearly";
 
   const [email, setEmail] = useState("");
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [mode, setMode] = useState<"payment" | "setup" | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [setupClientSecret, setSetupClientSecret] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const options: StripeElementsOptions | undefined = useMemo(() => {
-    if (!clientSecret) return undefined;
+    if (!setupClientSecret) return undefined;
     return {
-      clientSecret,
+      clientSecret: setupClientSecret, // Payment Element shows in SETUP mode automatically
       appearance: {
         theme: "stripe",
         variables: {
@@ -51,37 +51,21 @@ function CheckoutPageInner() {
         },
       } as any,
     };
-  }, [clientSecret]);
+  }, [setupClientSecret]);
 
-  async function startCheckout(e: React.FormEvent) {
+  async function start(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/create-subscription", {
+      const res = await fetch("/api/start-subscription", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ planId: plan, cycle, email }),
+        body: JSON.stringify({ email }),
       });
-
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to start checkout");
-
-      // already paid off-session (saved card) → go straight to success
-      if (data.alreadyPaid) {
-        window.location.href = "/checkout/success";
-        return;
-      }
-
-      if (data.mode === "payment" && data.clientSecret) {
-        setMode("payment");
-        setClientSecret(data.clientSecret);
-      } else if (data.mode === "setup" && data.setupClientSecret) {
-        setMode("setup");
-        setClientSecret(data.setupClientSecret);
-      } else {
-        throw new Error("Unexpected response from server.");
-      }
+      if (!res.ok) throw new Error(data.error || "Failed to start");
+      setSetupClientSecret(data.setupClientSecret);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -98,11 +82,9 @@ function CheckoutPageInner() {
           <span className="font-medium capitalize">{cycle}</span>
         </p>
 
-        {!clientSecret ? (
-          <form onSubmit={startCheckout} className="mt-8 grid gap-4 rounded-2xl border border-gray-200 p-6">
-            <label className="text-sm font-medium text-gray-700">
-              Email for receipt & account
-            </label>
+        {!setupClientSecret ? (
+          <form onSubmit={start} className="mt-8 grid gap-4 rounded-2xl border border-gray-200 p-6">
+            <label className="text-sm font-medium text-gray-700">Email for receipt & account</label>
             <input
               required
               type="email"
@@ -121,14 +103,7 @@ function CheckoutPageInner() {
           </form>
         ) : (
           <Elements stripe={stripePromise} options={options}>
-            <CheckoutForm
-              email={email}
-              planId={plan}
-              cycle={cycle}
-              clientSecret={clientSecret}
-              // If your CheckoutForm supports it, pass mode; otherwise it can default to "payment"
-              mode={mode === "setup" ? "setup" : "payment"}
-            />
+            <CheckoutForm email={email} planId={plan} cycle={cycle} setupClientSecret={setupClientSecret} />
           </Elements>
         )}
       </div>
