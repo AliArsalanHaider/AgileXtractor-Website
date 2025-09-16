@@ -15,6 +15,7 @@ export default function CheckoutPage() {
 
   const [email, setEmail] = useState("");
   const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [mode, setMode] = useState<"payment" | "setup" | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,9 +53,31 @@ export default function CheckoutPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ planId: plan, cycle, email }),
       });
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to start checkout");
-      setClientSecret(data.clientSecret);
+
+
+      if (data.alreadyPaid) {
+          // invoice already paid off-session (saved card on customer)
+          // -> just show your success UX, no card form needed
+          setClientSecret(null);
+          // you can re-use your existing instant success overlay if you have it,
+          // or navigate to /checkout/success
+          window.location.href = "/checkout/success";
+          return;
+        }
+
+      // Handle both flows
+      if (data.mode === "payment" && data.clientSecret) {
+        setMode("payment");
+        setClientSecret(data.clientSecret);
+      } else if (data.mode === "setup" && data.setupClientSecret) {
+        setMode("setup");
+        setClientSecret(data.setupClientSecret);
+      } else {
+        throw new Error("Unexpected response from server.");
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -94,7 +117,13 @@ export default function CheckoutPage() {
           </form>
         ) : (
           <Elements stripe={stripePromise} options={options}>
-            <CheckoutForm email={email} planId={plan} cycle={cycle} clientSecret={clientSecret} />
+            <CheckoutForm
+              email={email}
+              planId={plan}
+              cycle={cycle}
+              clientSecret={clientSecret}
+              mode={mode === "setup" ? "setup" : "payment"}
+            />
           </Elements>
         )}
       </div>
