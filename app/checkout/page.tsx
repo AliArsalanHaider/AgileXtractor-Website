@@ -1,14 +1,24 @@
+// app/checkout/page.tsx
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Elements } from "@stripe/react-stripe-js";
 import { loadStripe, type StripeElementsOptions } from "@stripe/stripe-js";
 import CheckoutForm from "@/app/components/CheckoutForm";
 
+export const dynamic = "force-dynamic"; // prevent prerender errors with useSearchParams
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLIC_KEY!);
 
-export default function CheckoutPage() {
+export default function Page() {
+  return (
+    <Suspense fallback={<div className="min-h-[80vh] bg-white" />}>
+      <CheckoutPageInner />
+    </Suspense>
+  );
+}
+
+function CheckoutPageInner() {
   const params = useSearchParams();
   const plan = (params.get("plan") ?? "basic") as "basic" | "professional";
   const cycle = (params.get("cycle") ?? "monthly") as "monthly" | "yearly";
@@ -57,18 +67,12 @@ export default function CheckoutPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to start checkout");
 
-
+      // already paid off-session (saved card) → go straight to success
       if (data.alreadyPaid) {
-          // invoice already paid off-session (saved card on customer)
-          // -> just show your success UX, no card form needed
-          setClientSecret(null);
-          // you can re-use your existing instant success overlay if you have it,
-          // or navigate to /checkout/success
-          window.location.href = "/checkout/success";
-          return;
-        }
+        window.location.href = "/checkout/success";
+        return;
+      }
 
-      // Handle both flows
       if (data.mode === "payment" && data.clientSecret) {
         setMode("payment");
         setClientSecret(data.clientSecret);
@@ -122,6 +126,7 @@ export default function CheckoutPage() {
               planId={plan}
               cycle={cycle}
               clientSecret={clientSecret}
+              // If your CheckoutForm supports it, pass mode; otherwise it can default to "payment"
               mode={mode === "setup" ? "setup" : "payment"}
             />
           </Elements>
