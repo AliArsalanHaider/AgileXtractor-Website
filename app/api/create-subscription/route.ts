@@ -1,24 +1,11 @@
+// app/api/create-subscription/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 
-export const runtime = "nodejs"; // Stripe SDK requires Node, not Edge
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic"; // keep this route purely dynamic
 
-// --- env helpers ---
-function reqEnv(name: string) {
-  const v = process.env[name];
-  if (!v || v.trim() === "") throw new Error(`${name} is not set`);
-  return v;
-}
-function reqPrice(name: string) {
-  const v = reqEnv(name);
-  if (!/^price_/.test(v)) throw new Error(`${name} must start with "price_"`);
-  return v;
-}
-
-// Do NOT pin apiVersion to avoid TS literal mismatches on Vercel
-const stripe = new Stripe(reqEnv("STRIPE_SECRET_KEY"));
-
-// unwrap helpers (newer SDK often returns Stripe.Response<T>)
+// --- Helpers to normalize Stripe's Response<T> wrappers ---
 function unwrap<T>(resp: T | Stripe.Response<T>): T {
   return (resp as any)?.data ?? (resp as T);
 }
@@ -30,44 +17,66 @@ function firstFromList<T>(
   return Array.isArray(arr) ? arr[0] : undefined;
 }
 
-// prices
-const priceMap = {
-  basic: {
-    monthly: reqPrice("STRIPE_PRICE_BASIC_MONTHLY"),
-    yearly: reqPrice("STRIPE_PRICE_BASIC_YEARLY"),
-  },
-  professional: {
-    monthly: reqPrice("STRIPE_PRICE_PROFESSIONAL_MONTHLY"),
-    yearly: reqPrice("STRIPE_PRICE_PROFESSIONAL_YEARLY"),
-  },
-} as const;
-
-type Plan = keyof typeof priceMap;
-type Cycle = keyof (typeof priceMap)["basic"];
-
 export async function POST(req: NextRequest) {
   try {
+    // Parse body
     const { planId, cycle, email } = (await req.json()) as {
-      planId: Plan;
-      cycle: Cycle;
+      planId: "basic" | "professional";
+      cycle: "monthly" | "yearly";
       email: string;
     };
-
     if (!planId || !cycle || !email) {
-      return NextResponse.json({ error: "Missing required fields: planId, cycle, email" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing required fields: planId, cycle, email" },
+        { status: 400 }
+      );
     }
 
+    // ----- Read envs at runtime (NOT at module scope) -----
+    const {
+      STRIPE_SECRET_KEY,
+      STRIPE_PRICE_BASIC_MONTHLY,
+      STRIPE_PRICE_BASIC_YEARLY,
+      STRIPE_PRICE_PROFESSIONAL_MONTHLY,
+      STRIPE_PRICE_PROFESSIONAL_YEARLY,
+    } = process.env;
+
+    if (!STRIPE_SECRET_KEY) {
+      // Don’t crash build; return a runtime error instead
+      return NextResponse.json(
+        { error: "Stripe is not configured. Set STRIPE_SECRET_KEY in Vercel env." },
+        { status: 500 }
+      );
+    }
+
+    // Validate price map lazily
+    const priceMap: Record<"basic" | "professional", Record<"monthly" | "yearly", string | undefined>> = {
+      basic: {
+        monthly: STRIPE_PRICE_BASIC_MONTHLY,
+        yearly: STRIPE_PRICE_BASIC_YEARLY,
+      },
+      professional: {
+        monthly: STRIPE_PRICE_PROFESSIONAL_MONTHLY,
+        yearly: STRIPE_PRICE_PROFESSIONAL_YEARLY,
+      },
+    };
     const price = priceMap[planId]?.[cycle];
-    if (!price) {
-      return NextResponse.json({ error: `Price not configured for ${planId}/${cycle}` }, { status: 400 });
+    if (!price || !/^price_/.test(price)) {
+      return NextResponse.json(
+        { error: `Price ID missing for ${planId}/${cycle}. Add a valid price_... ID to Vercel env.` },
+        { status: 500 }
+      );
     }
 
-    // 1) find or create customer
+    // Create Stripe client now that we know the key exists
+    const stripe = new Stripe(STRIPE_SECRET_KEY);
+
+    // 1) Find or create customer by email
     const listResp = await stripe.customers.list({ email, limit: 1 });
     const existing = firstFromList(listResp);
     const customer = existing ?? unwrap(await stripe.customers.create({ email }));
 
-    // 2) create subscription, payable first invoice (no trial)
+    // 2) Create subscription → payable first invoice (skip trials)
     const subResp = await stripe.subscriptions.create({
       customer: customer.id,
       items: [{ price }],
@@ -75,48 +84,56 @@ export async function POST(req: NextRequest) {
       trial_from_plan: false,
       payment_behavior: "default_incomplete",
       payment_settings: { save_default_payment_method: "on_subscription" },
-      // expand minimal; we'll retrieve invoice with deeper expands below
-      expand: ["latest_invoice"],
+      expand: ["latest_invoice", "pending_setup_intent"],
     });
     const subscription = unwrap(subResp);
 
-    // 3) get invoice id
+    // 3) Get invoice id
     const invoiceId =
       typeof subscription.latest_invoice === "string"
         ? subscription.latest_invoice
         : subscription.latest_invoice?.id ?? null;
 
     if (!invoiceId) {
-      return NextResponse.json({ error: "No latest invoice found on subscription" }, { status: 500 });
-    }
-
-    // 4) retrieve invoice with both PI and charge expanded (charge is a reliable fallback)
-    let invoice = unwrap(
-      await stripe.invoices.retrieve(invoiceId, { expand: ["payment_intent", "charge", "charge.payment_intent"] })
-    );
-
-    // If draft, finalize to attach PI when payment is due
-    if (invoice.status === "draft") {
-      invoice = unwrap(
-        await stripe.invoices.finalizeInvoice(invoiceId, { expand: ["payment_intent", "charge", "charge.payment_intent"] })
+      return NextResponse.json(
+        { error: "No latest invoice found on subscription" },
+        { status: 500 }
       );
     }
 
-    // 5) compute due and status
+    // 4) Retrieve invoice with PI & charge expanded (charge is a reliable fallback)
+    let invoice = unwrap(
+      await stripe.invoices.retrieve(invoiceId, {
+        expand: ["payment_intent", "charge", "charge.payment_intent"],
+      })
+    );
+
+    // If invoice is draft, finalize it to attach a PI when payment is due
+    if (invoice.status === "draft") {
+      invoice = unwrap(
+        await stripe.invoices.finalizeInvoice(invoiceId, {
+          expand: ["payment_intent", "charge", "charge.payment_intent"],
+        })
+      );
+    }
+
+    // 5) Decide the flow
     const amountDue = (invoice.amount_due ?? invoice.total ?? 0) || 0;
     const isPaid = invoice.status === "paid";
 
-    // Helper to extract PI client_secret from invoice or charge
-    async function getPIClientSecretFromInvoice(inv: Stripe.Invoice): Promise<string | null> {
-      // a) direct on invoice
-      const piRef = (inv as any)["payment_intent"] as string | Stripe.PaymentIntent | null | undefined;
+    // Helper: extract PI client_secret either directly or via charge
+    const getPIClientSecret = async (): Promise<string | null> => {
+      const piRef = (invoice as any)["payment_intent"] as
+        | string
+        | Stripe.PaymentIntent
+        | null
+        | undefined;
       if (piRef && typeof piRef !== "string" && piRef.client_secret) return piRef.client_secret;
       if (typeof piRef === "string") {
         const pi = unwrap(await stripe.paymentIntents.retrieve(piRef));
         return pi.client_secret ?? null;
       }
-      // b) via charge fallback (paid invoices often have charge with PI)
-      const chargeRef = (inv as any)["charge"] as string | Stripe.Charge | null | undefined;
+      const chargeRef = (invoice as any)["charge"] as string | Stripe.Charge | null | undefined;
       if (chargeRef) {
         const charge =
           typeof chargeRef === "string"
@@ -125,16 +142,16 @@ export async function POST(req: NextRequest) {
         const cpi = (charge as any)["payment_intent"] as string | Stripe.PaymentIntent | null | undefined;
         if (cpi && typeof cpi !== "string" && cpi.client_secret) return cpi.client_secret;
         if (typeof cpi === "string") {
-          const pi = unwrap(await stripe.paymentIntents.retrieve(cpi));
-          return pi.client_secret ?? null;
+          const pi2 = unwrap(await stripe.paymentIntents.retrieve(cpi));
+          return pi2.client_secret ?? null;
         }
       }
       return null;
-    }
+    };
 
-    // If there’s money due now, return a PaymentIntent client secret (or show “already paid” if auto-charged)
     if (amountDue > 0) {
-      const clientSecret = await getPIClientSecretFromInvoice(invoice);
+      // Money due now → return PaymentIntent client secret
+      const clientSecret = await getPIClientSecret();
       if (clientSecret) {
         return NextResponse.json({
           mode: "payment",
@@ -142,29 +159,23 @@ export async function POST(req: NextRequest) {
           subscriptionId: subscription.id,
         });
       }
-      // If Stripe auto-charged because a default card existed, status will likely be "paid" and no PI to confirm
+      // If Stripe auto-charged off-session (saved card), invoice is already paid
       if (isPaid) {
         return NextResponse.json({
           alreadyPaid: true,
           subscriptionId: subscription.id,
         });
       }
-      // else genuine error
       return NextResponse.json(
         {
           error: "Could not retrieve payment intent.",
-          details: {
-            subscriptionId: subscription.id,
-            invoiceId,
-            invoiceStatus: invoice.status,
-            amountDue,
-          },
+          details: { subscriptionId: subscription.id, invoiceId, invoiceStatus: invoice.status, amountDue },
         },
         { status: 500 }
       );
     }
 
-    // If nothing is due now ($0 first invoice: trial/coupon/metered), collect card via SetupIntent
+    // amountDue === 0 → collect card now via SetupIntent (store for later charges)
     const psiRef = subscription.pending_setup_intent as string | Stripe.SetupIntent | null | undefined;
     if (psiRef && typeof psiRef !== "string") {
       return NextResponse.json({
@@ -181,6 +192,7 @@ export async function POST(req: NextRequest) {
         subscriptionId: subscription.id,
       });
     }
+    // fallback SI
     const fallbackSI = unwrap(
       await stripe.setupIntents.create({ customer: customer.id, usage: "off_session" })
     );
