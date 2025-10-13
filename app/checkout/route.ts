@@ -1,44 +1,46 @@
 // app/checkout/route.ts
-import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+export const runtime = "edge"; // fast & Vercel-friendly
+export const dynamic = "force-dynamic"; // we read query params
 
-// Optional defaults via env (server-side):
-// e.g. CHECKOUT_DEFAULT_PLAN=basic  CHECKOUT_DEFAULT_CYCLE=yearly
-const DEFAULT_PLAN =
-  (process.env.CHECKOUT_DEFAULT_PLAN ?? "basic").toLowerCase();
-const DEFAULT_CYCLE =
-  (process.env.CHECKOUT_DEFAULT_CYCLE ?? "monthly").toLowerCase();
+type Plan = "free" | "basic" | "premium";
+type PlanIn = Plan | "professional";
+type Cycle = "monthly" | "yearly";
 
-// Normalize "professional" -> "premium" to match the rest of your flow
-function normalizePlan(input?: string) {
-  const x = (input ?? "").toLowerCase();
+// Map “professional” -> “premium”, otherwise clamp to allowed values
+function normalizePlan(input?: string): Plan {
+  const x = (input ?? "").toLowerCase() as PlanIn;
   if (x === "professional") return "premium";
   if (x === "premium" || x === "basic" || x === "free") return x;
-  return DEFAULT_PLAN;
+  // optional defaults via env
+  const def = (process.env.CHECKOUT_DEFAULT_PLAN ?? "basic").toLowerCase();
+  return (["free", "basic", "premium"].includes(def) ? def : "basic") as Plan;
 }
 
-function normalizeCycle(input?: string) {
+function normalizeCycle(input?: string): Cycle {
   const x = (input ?? "").toLowerCase();
-  return x === "yearly" ? "yearly" : "monthly";
+  if (x === "yearly") return "yearly";
+  const def = (process.env.CHECKOUT_DEFAULT_CYCLE ?? "monthly").toLowerCase();
+  return def === "yearly" ? "yearly" : "monthly";
 }
 
-export const GET = async (req: NextRequest) => {
+export function GET(req: Request) {
   const url = new URL(req.url);
-
-  // Preserve existing query params, but ensure plan/cycle defaults exist
   const sp = new URLSearchParams(url.search);
 
+  // normalize plan/cycle while preserving any other query params
   const plan = normalizePlan(sp.get("plan") || undefined);
   const cycle = normalizeCycle(sp.get("cycle") || undefined);
-
   sp.set("plan", plan);
   sp.set("cycle", cycle);
 
-  // 307 Temporary Redirect preserves method semantics if you ever POST to this URL,
-  // but for links it's just a normal redirect.
-  const location = `/get-started?${sp.toString()}`;
-  return NextResponse.redirect(location, { status: 307 });
-};
+  // build a safe, same-origin relative redirect to the intake page
+  const to = new URL("/get-started", url.origin);
+  to.search = sp.toString();
+
+  const res = NextResponse.redirect(to, { status: 307 });
+  // SEO: avoid indexing this utility redirect
+  res.headers.set("X-Robots-Tag", "noindex, nofollow");
+  return res;
+}

@@ -1,39 +1,57 @@
-// app/api/checkout/success/page.tsx
+// app/checkout/success/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
+import type { Metadata } from "next";
 import { loadStripe } from "@stripe/stripe-js";
 
+// (Optional) page-level SEO. We avoid indexing this page.
+export const metadata: Metadata = {
+  title: "Checkout Success",
+  robots: { index: false, follow: false, nocache: true },
+};
+
+type Mode = "subscription" | "payment" | "setup" | "free" | "unknown";
+
 export default function SuccessPage() {
-  const [ok, setOk] = useState(false);
-  const [mode, setMode] = useState<"subscription" | "payment" | "setup" | "free" | null>(null);
+  const [mode, setMode] = useState<Mode>("unknown");
+  const [ok, setOk] = useState<boolean>(false);
 
   useEffect(() => {
+    let mounted = true;
+
     (async () => {
       const params = new URLSearchParams(window.location.search);
       const sessionId = params.get("session_id");
       const free = params.get("free");
 
+      // Free plan path (your server appended ?free=1)
       if (free) {
+        if (!mounted) return;
         setMode("free");
         setOk(true);
         return;
       }
 
+      // Stripe Checkout success (subscription)
       if (sessionId) {
+        if (!mounted) return;
         setMode("subscription");
+        // You might confirm on the server via sessionId, but we show success here.
         setOk(true);
         return;
       }
 
-      const stripePub = process.env.NEXT_PUBLIC_STRIPE_PUBLIC_KEY!;
-      const stripe = stripePub ? await loadStripe(stripePub) : null;
+      // Payment Intents / Setup Intents success URLs
+      const pubKey = process.env.NEXT_PUBLIC_STRIPE_PUBLIC_KEY || "";
+      const stripe = pubKey ? await loadStripe(pubKey) : null;
 
       const piCS = params.get("payment_intent_client_secret");
       const siCS = params.get("setup_intent_client_secret");
 
       if (stripe && piCS) {
         const { paymentIntent } = await stripe.retrievePaymentIntent(piCS);
+        if (!mounted) return;
         setMode("payment");
         setOk(paymentIntent?.status === "succeeded");
         return;
@@ -41,30 +59,63 @@ export default function SuccessPage() {
 
       if (stripe && siCS) {
         const { setupIntent } = await stripe.retrieveSetupIntent(siCS);
+        if (!mounted) return;
         setMode("setup");
         setOk(setupIntent?.status === "succeeded");
         return;
       }
 
+      // Fallback: show a generic success “handoff complete”
+      if (!mounted) return;
+      setMode("unknown");
       setOk(true);
     })();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
+  const headline =
+    mode === "free"
+      ? "Free plan activated 🎉"
+      : ok
+      ? "Payment successful 🎉"
+      : "Thanks! We’re finalizing…";
+
+  const subtext =
+    mode === "free"
+      ? "Your Free plan is active and credits have been added."
+      : ok
+      ? "Your subscription was created. Credits appear shortly after confirmation."
+      : "You can close this page — we’ll update your account shortly.";
+
   return (
-    <div className="min-h-[60vh] grid place-items-center bg-white">
-      <div className="rounded-2xl bg-white p-8 shadow border border-gray-200 text-center">
-        <h1 className="text-2xl font-bold text-gray-900">
-          {mode === "free" ? "Free plan activated 🎉" : ok ? "Payment successful 🎉" : "Thanks! We’re finalizing…"}
-        </h1>
-        <p className="mt-2 text-gray-600">
-          {mode === "free"
-            ? "Your Free plan is active and credits have been added."
-            : "Your subscription was created. Credits appear shortly after confirmation."}
+    <main className="min-h-[60vh] grid place-items-center bg-white px-4">
+      <section className="w-full max-w-lg rounded-2xl bg-white p-8 shadow border border-gray-200 text-center">
+        <h1 className="text-2xl font-bold text-gray-900">{headline}</h1>
+        <p className="mt-2 text-gray-600">{subtext}</p>
+
+        <div className="mt-6 flex items-center justify-center gap-3">
+          <a
+            href="/dashboard"
+            className="inline-block rounded-xl bg-[#2BAEFF] px-6 py-3 font-semibold text-white hover:opacity-90"
+          >
+            Go to dashboard
+          </a>
+          <a
+            href="/"
+            className="inline-block rounded-xl border border-[#2BAEFF] px-6 py-3 font-semibold text-[#2BAEFF] hover:bg-[#2BAEFF]/10"
+          >
+            Back to home
+          </a>
+        </div>
+
+        {/* Tiny status line for debugging (optional) */}
+        <p className="mt-4 text-xs text-gray-400">
+          Mode: {mode} • Status: {ok ? "ok" : "pending"}
         </p>
-        <a className="mt-6 inline-block rounded-xl bg-[#2BAEFF] px-6 py-3 font-semibold text-white" href="/dashboard">
-          Go to dashboard
-        </a>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }
