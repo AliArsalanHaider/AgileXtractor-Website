@@ -1,59 +1,92 @@
-// lib/activate-plan.ts
-import { prisma } from "@/lib/prisma";
+// lib/active-plan.ts
+import {prisma} from "@/lib/prisma";
 
-type PlanName = "FREE" | "BASIC" | "PREMIUM" | "ENTERPRISE";
-type Cycle = "monthly" | "yearly";
+// Align with your UI names (FREE/BASIC/PREMIUM/ENTERPRISE)
+export type PlanName = "FREE" | "BASIC" | "PREMIUM" | "ENTERPRISE";
+export type RenewInterval = "monthly" | "yearly";
 
-// credits per purchase cycle
-const CREDITS_PER_PLAN: Record<PlanName, number> = {
-  FREE: 1000,
-  BASIC: 10000,
-  PREMIUM: 100000,
-  ENTERPRISE: 1_000_000,
+// Base monthly prices in AED (before yearly discount)
+const MONTHLY_AED: Record<PlanName, number | null> = {
+  FREE: 0,
+  BASIC: 165,
+  PREMIUM: 1100,
+  ENTERPRISE: null, // contact sales
 };
 
-function addMonths(d: Date, m: number) {
-  const x = new Date(d);
-  x.setMonth(x.getMonth() + m);
-  return x;
+function computePrices(plan: PlanName, renewInterval: RenewInterval) {
+  const monthly = MONTHLY_AED[plan];
+
+  if (monthly == null) {
+    return {
+      perMonthAED: null,
+      billedTotalAED: null,
+    };
+  }
+
+  if (renewInterval === "monthly") {
+    return {
+      perMonthAED: monthly,
+      billedTotalAED: monthly, // charged monthly
+    };
+  }
+
+  // Yearly: 25% off (store per-month after discount and the yearly total)
+  const perMonthAED = Math.round(monthly * 0.75);
+  const billedTotalAED = perMonthAED * 12;
+  return { perMonthAED, billedTotalAED };
 }
 
-export async function activatePlanForEmail(
-  email: string,
-  plan: PlanName,
-  cycle: Cycle,
-  payment?: {
-    provider?: string;
-    customerId?: string;
-    subscriptionId?: string;
-    lastInvoiceId?: string;
-  }
-) {
-  const grant = CREDITS_PER_PLAN[plan];
-  const now = new Date();
-  const expires = cycle === "yearly" ? addMonths(now, 12) : addMonths(now, 1);
+/**
+ * Stores the active plan inside Registration.profile (JSONB).
+ * - Merges existing profile JSON (keeps prior fields).
+ * - Creates the registration row if it doesn't exist yet.
+ */
+export async function setActivePlan(opts: {
+  email: string;
+  plan: PlanName;
+  renewInterval: RenewInterval;
+}) {
+  const { email, plan, renewInterval } = opts;
 
-  return prisma.registration.update({
+  // Fetch current profile to merge
+  const existing = await prisma.registration.findUnique({
     where: { email },
-    data: {
-      plan,
-      planStatus: "ACTIVE",
-      planPriceAED:
-        plan === "BASIC" ? 165 :
-        plan === "PREMIUM" ? 1100 :
-        0,
-      allocatedCredits: grant,
-      renewInterval: cycle,
-      planStartedAt: now,
-      planExpiresAt: expires,
-      lastTopUpAt: now,
-      autoRenew: true,
-      paymentProvider: payment?.provider,
-      paymentCustomerId: payment?.customerId,
-      paymentSubscriptionId: payment?.subscriptionId,
-      paymentLastInvoiceId: payment?.lastInvoiceId,
-      totalCredits:     { increment: grant },
-      remainingCredits: { increment: grant },
+    select: { profile: true },
+  });
+
+  const { perMonthAED, billedTotalAED } = computePrices(plan, renewInterval);
+  const now = new Date().toISOString();
+
+  const previousProfile =
+    (existing?.profile as Record<string, any> | null | undefined) ?? {};
+
+  const newProfile = {
+    ...previousProfile,
+    plan,
+    planStatus: "ACTIVE",
+    renewInterval,
+    // UI-friendly fields you can read anywhere:
+    planPriceAEDPerMonth: perMonthAED,
+    billedTotalAED,
+    selectedAt: previousProfile?.selectedAt ?? now,
+    lastUpdated: now,
+  };
+
+  // upsert using JSON profile only (no unknown top-level fields)
+  await prisma.registration.upsert({
+    where: { email },
+    create: {
+      email,
+      active: true,
+      profile: newProfile,
+      // other numeric columns use defaults from the Prisma model
+    },
+    update: {
+      active: true,
+      profile: newProfile,
+      // updatedAt is @updatedAt, so we don't set it manually
     },
   });
+
+  return { ok: true, profile: newProfile };
 }
