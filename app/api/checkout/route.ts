@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { activatePlanForEmail } from "@/lib/active-plan";
+import { setActivePlan } from "@/lib/active-plan";
 
 export const runtime = "nodejs";
 
@@ -84,7 +84,12 @@ export async function POST(req: Request) {
 
     // FREE plan → activate immediately (no Stripe)
     if (plan === "free") {
-      await activatePlanForEmail(email, "FREE", cycle, { provider: "system" });
+      await setActivePlan({
+        email,
+        plan: "FREE",
+        renewInterval: cycle, // "monthly" | "yearly"
+      });
+      
       return NextResponse.json(
         { url: `${origin}/api/checkout/success?free=1` },
         { status: 200 }

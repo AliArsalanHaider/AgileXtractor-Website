@@ -1,5 +1,6 @@
 // lib/active-plan.ts
-import {prisma} from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 
 // Align with your UI names (FREE/BASIC/PREMIUM/ENTERPRISE)
 export type PlanName = "FREE" | "BASIC" | "PREMIUM" | "ENTERPRISE";
@@ -17,29 +18,24 @@ function computePrices(plan: PlanName, renewInterval: RenewInterval) {
   const monthly = MONTHLY_AED[plan];
 
   if (monthly == null) {
-    return {
-      perMonthAED: null,
-      billedTotalAED: null,
-    };
+    return { perMonthAED: null as number | null, billedTotalAED: null as number | null };
   }
 
   if (renewInterval === "monthly") {
-    return {
-      perMonthAED: monthly,
-      billedTotalAED: monthly, // charged monthly
-    };
+    // monthly billing – show per-month; "total" per charge is the same monthly amount
+    return { perMonthAED: monthly, billedTotalAED: monthly };
   }
 
-  // Yearly: 25% off (store per-month after discount and the yearly total)
+  // yearly: 25% off → store discounted per-month and yearly total
   const perMonthAED = Math.round(monthly * 0.75);
   const billedTotalAED = perMonthAED * 12;
   return { perMonthAED, billedTotalAED };
 }
 
 /**
- * Stores the active plan inside Registration.profile (JSONB).
- * - Merges existing profile JSON (keeps prior fields).
- * - Creates the registration row if it doesn't exist yet.
+ * Upserts a Registration row and stores the active plan metadata into profile (JSONB).
+ * - Merges existing profile JSON (preserves prior fields).
+ * - Creates the row if it doesn't exist.
  */
 export async function setActivePlan(opts: {
   email: string;
@@ -48,43 +44,40 @@ export async function setActivePlan(opts: {
 }) {
   const { email, plan, renewInterval } = opts;
 
-  // Fetch current profile to merge
+  // Read the current profile so we can merge
   const existing = await prisma.registration.findUnique({
     where: { email },
     select: { profile: true },
   });
 
   const { perMonthAED, billedTotalAED } = computePrices(plan, renewInterval);
-  const now = new Date().toISOString();
+  const nowIso = new Date().toISOString();
 
   const previousProfile =
     (existing?.profile as Record<string, any> | null | undefined) ?? {};
 
+  // Merge & update plan fields inside the JSON profile only
   const newProfile = {
     ...previousProfile,
     plan,
     planStatus: "ACTIVE",
     renewInterval,
-    // UI-friendly fields you can read anywhere:
     planPriceAEDPerMonth: perMonthAED,
     billedTotalAED,
-    selectedAt: previousProfile?.selectedAt ?? now,
-    lastUpdated: now,
+    selectedAt: previousProfile?.selectedAt ?? nowIso,
+    lastUpdated: nowIso,
   };
 
-  // upsert using JSON profile only (no unknown top-level fields)
   await prisma.registration.upsert({
     where: { email },
     create: {
       email,
       active: true,
-      profile: newProfile,
-      // other numeric columns use defaults from the Prisma model
+      profile: newProfile as Prisma.InputJsonValue,
     },
     update: {
       active: true,
-      profile: newProfile,
-      // updatedAt is @updatedAt, so we don't set it manually
+      profile: newProfile as Prisma.InputJsonValue,
     },
   });
 
