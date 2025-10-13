@@ -12,7 +12,7 @@ import FAQs from "./components/FAQs";
 import ContactSection from "@/app/components/ContactSection";
 
 
-export default function Page() {
+export default function Page() { 
   return (
     <main className=" bg-gray-200 w-full">
       <Header />

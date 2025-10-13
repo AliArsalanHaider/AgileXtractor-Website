@@ -3,141 +3,74 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
+import { PLANS, getPriceAED, formatAED, type PlanId, type BillingCycle } from "@/lib/plan";
+
+const checkoutLinks: Record<
+  PlanId,
+  { monthly?: string; yearly?: string } | undefined
+> = {
+  free: undefined, // will fall back to in-app route
+  basic: {
+    monthly: process.env.NEXT_PUBLIC_CHECKOUT_BASIC_MONTHLY,
+    yearly: process.env.NEXT_PUBLIC_CHECKOUT_BASIC_YEARLY,
+  },
+  premium: {
+    monthly: process.env.NEXT_PUBLIC_CHECKOUT_PREMIUM_MONTHLY,
+    yearly: process.env.NEXT_PUBLIC_CHECKOUT_PREMIUM_YEARLY,
+  },
+  enterprise: undefined, // handled via calendar/contact
+};
+
+function getHref(planId: PlanId, cycle: BillingCycle) {
+  if (planId === "enterprise") {
+    const meeting = process.env.NEXT_PUBLIC_CALENDAR_URL;
+    return meeting && meeting.startsWith("http") ? meeting : "/contact";
+  }
+  // For free/basic/premium we now go to the intake form
+  return `/get-started?plan=${planId}&cycle=${cycle}`;
+}
 
 export default function Pricing() {
-  const [yearly, setYearly] = useState(false);
-
-  const plans = [
-    {
-      id: "basic",
-      name: "Basic",
-      price: yearly ? 45 : 45,
-      features: [
-        "10,000 Credits",
-        "English Extraction ",
-        "Process Lengthy Documents",
-        "Only 1 user",
-        "Export (Text/Doc)",
-        "Continuous learning",
-        "3-month Data Retention",
-        "Cancel Anytime",
-      ],
-      highlight: false,
-    },
-    {
-      id: "professional",
-      name: "Professional",
-      price: yearly ? 249 : 299,
-      features: [
-        "100,000 Credits",
-        "English Extraction",
-        "Arabic Extraction",
-        "Arabic to English Translation (Pre-defined Fields)",
-        "Process Lengthy Documents",
-        "Up-to 3 users ",
-        "Export (Text/Doc / CSV / Excel) ",
-        "Continuous learning",
-        "1 Year Data Retention",
-        "24/7 Support",
-        "Pre-built document AI models",
-        "Role-based access control",
-        "Audit Logging",
-        "Cancel Anytime",
-      ],
-      highlight: true,
-    },
-    {
-      id: "enterprise",
-      name: "Enterprise (Customized)",
-      price: "Contact Us for Pricing",
-      features: [
-        "1000,000 credits",
-        "English Extraction",
-        "Arabic Extraction",
-        "Arabic to English Translation (As per requirement)",
-        "Process Lengthy Documents",
-        "Unlimited Users",
-        "Export (Text/Doc / CSV / Excel)",
-        "Continuous learning",
-        "Custom Data Retention",
-        "24/7 Premium Support",
-        "Pre-built document AI models",
-        "Role-based access control",
-        "Audit Logging",
-        "API Integration",
-        "Third Party Integrations",
-        "Custom fine tune models",
-        "Inbox and Email Parsing",
-        "Auto Document Classification ",
-        "Document Analytics",
-        "Test Environment",
-        "Cancel Anytime",
-      ],
-      highlight: false,
-    },
-  ];
-
-  // Secure hosted checkout links (Stripe Payment Links)
-  const checkoutLinks: Record<string, { monthly?: string; yearly?: string }> = {
-    basic: {
-      monthly: process.env.NEXT_PUBLIC_CHECKOUT_BASIC_MONTHLY,
-      yearly: process.env.NEXT_PUBLIC_CHECKOUT_BASIC_YEARLY,
-    },
-    professional: {
-      monthly: process.env.NEXT_PUBLIC_CHECKOUT_PROFESSIONAL_MONTHLY,
-      yearly: process.env.NEXT_PUBLIC_CHECKOUT_PROFESSIONAL_YEARLY,
-    },
-    // enterprise handled separately (meeting link)
-  };
-
-  // Choose the right secure link per plan & billing mode; fallback to /checkout
-  const getHref = (planId: string) => {
-    if (planId === "enterprise") {
-      const meeting = process.env.NEXT_PUBLIC_CALENDAR_URL;
-      return meeting && meeting.length > 0 ? meeting : "#contact";
-    }
-    const mode = yearly ? "yearly" : "monthly";
-    const href = checkoutLinks[planId]?.[mode];
-    return href && href.startsWith("http") ? href : `/checkout?plan=${planId}&cycle=${mode}`;
-  };
+  const [cycle, setCycle] = useState<BillingCycle>("yearly");
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   return (
-    <section id="pricing" className="bg-white">
-      <div className="mx-auto max-w-6xl px-6 sm:px-8 py-12 sm:py-8">
-        <h2 className="text-center text-3xl sm:text-5xl font-bold text-gray-900">
-          Powerful features for <br />
+    <section id="pricing" className="bg-white" aria-labelledby="pricing-title">
+      <div className="mx-auto max-w-6xl px-6 sm:px-8 py-12 sm:py-16">
+        <h1 id="pricing-title" className="text-center text-4xl sm:text-5xl font-bold text-gray-900">
+          Powerful features for{" "}
           <span className="text-[#2BAEFF]">powerful creators</span>
-        </h2>
-        <p className="mt-3 text-center text-black">
-          Choose a plan {"that's"} right for you
-        </p>
+        </h1>
+        <p className="mt-3 text-center text-black">Choose a plan that&apos;s right for you</p>
 
-        {/* Toggle */}
+        {/* Billing cycle toggle */}
         <div className="mt-6 flex items-center justify-center gap-4">
-          <span className={!yearly ? "font-semibold text-gray-900" : "text-gray-500"}>
+          <span className={cycle === "monthly" ? "font-semibold text-gray-900" : "text-gray-500"}>
             Pay Monthly
           </span>
           <button
-            onClick={() => setYearly(!yearly)}
+            onClick={() => setCycle(cycle === "monthly" ? "yearly" : "monthly")}
             className="relative inline-flex h-6 w-12 items-center rounded-full bg-[#2BAEFF] transition"
+            aria-label="Toggle billing cycle"
+            aria-pressed={cycle === "yearly"}
           >
             <span
               className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${
-                yearly ? "translate-x-6" : "translate-x-1"
+                cycle === "yearly" ? "translate-x-6" : "translate-x-1"
               }`}
             />
           </button>
-          <span className={yearly ? "font-semibold text-gray-900" : "text-gray-500"}>
+          <span className={cycle === "yearly" ? "font-semibold text-gray-900" : "text-gray-500"}>
             Pay Yearly
           </span>
 
-          {/* When yearly is ON, show the image slightly lower (replaces "Save 25%") */}
-          {yearly && (
+          {cycle === "yearly" && (
             <div className="ml-2 relative top-2">
               <Image
-                src="/save25prcent.png" // place this file in /public
-                alt="Save 25%"
+                src="/save25prcent.png"
+                alt="Save 25% on yearly billing"
                 width={120}
                 height={40}
                 priority
@@ -146,63 +79,94 @@ export default function Pricing() {
           )}
         </div>
 
-        {/* Pricing cards */}
-        <div className="mt-12 grid gap-6 lg:grid-cols-3">
-          {plans.map((plan) => {
-            const href = getHref(plan.id);
+        {/* Pricing grid */}
+        <div className="mt-12 grid gap-6 lg:grid-cols-4">
+          {PLANS.map((plan) => {
+            const isExpanded = !!expanded[plan.id];
+            const hasOverflow = plan.features.length > 10;
+            const visible = isExpanded ? plan.features : plan.features.slice(0, 10);
+
+            // Price inputs (guard enterprise which has null)
+            const monthlyBase = plan.monthlyPriceAED; // number | null
+            const discountedMonthly =
+              monthlyBase == null ? null : Math.round(monthlyBase * 0.75); // 25% off per-month display
+            const yearlyBilledTotal =
+              plan.monthlyPriceAED == null ? null : getPriceAED(plan, "yearly"); // total AED/yr
+
+            const href = getHref(plan.id, cycle);
             const isExternal = href.startsWith("http");
 
             return (
-              <div
+              <article
                 key={plan.id}
-                className={`rounded-2xl border p-6 shadow-sm flex flex-col ${
-                  plan.highlight
-                    ? "bg-[#2BAEFF] text-white border-[#2BAEFF] scale-105"
-                    : "bg-white text-gray-900 border-gray-200"
-                }`}
+                className="group rounded-2xl border border-gray-200 p-6 shadow-sm flex flex-col bg-white text-gray-900 transition-colors duration-200 hover:bg-[#2BAEFF] hover:text-white"
+                aria-label={`${plan.name} plan`}
               >
-                <h3 className="text-xl font-semibold">{plan.name}</h3>
+                <h2 className="text-l font-semibold">{plan.name}</h2>
 
-                {/* Price (numeric shows $ + /month, string shows just the text) */}
-                {typeof plan.price === "number" ? (
-                  <p className="mt-4 text-4xl font-bold">
-                    ${plan.price}
-                    <span className="text-base font-medium"> /month</span>
-                  </p>
-                ) : (
-                  <p className="mt-4 text-2xl font-semibold">{plan.price}</p>
-                )}
+                {/* Price display */}
+                <div className="mt-4">
+                  {plan.id === "enterprise" ? (
+                    // Always show GET A QUOTE (no numbers) for enterprise
+                    <p className="text-xl font-bold">
+                      <span className="text-2xl font-bold tracking-wide">GET A QUOTE</span>
+                    </p>
+                  ) : cycle === "monthly" ? (
+                    <>
+                      <p className="text-xl font-bold">
+                        <span className="text-3xl font-bold">
+                          {formatAED(monthlyBase, "monthly")}
+                        </span>
+                      </p>
+                      <p className="mt-1 text-xs opacity-80">Billed monthly</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xl font-bold">
+                        <span className="text-3xl font-bold">
+                          {formatAED(discountedMonthly, "monthly")}
+                        </span>
+                      </p>
+                      <p className="mt-1 text-xs opacity-80">
+                        Billed yearly{" "}
+                        <span className="font-medium">
+                          {formatAED(yearlyBilledTotal, "yearly")}
+                        </span>
+                      </p>
+                    </>
+                  )}
+                </div>
 
-                {/* Buttons:
-                    - Basic/Professional: Stripe Payment Link (new tab) or fallback to /checkout
-                    - Enterprise: Meeting link (calendar URL or #contact)
-                 */}
-                <a
+                <Link
                   href={href}
                   target={isExternal ? "_blank" : undefined}
                   rel={isExternal ? "noopener noreferrer" : undefined}
-                  className={`mt-6 rounded-md px-4 py-2 text-center font-medium ${
-                    plan.highlight
-                      ? "bg-white text-[#2BAEFF] hover:bg-sky-50"
-                      : "bg-[#2BAEFF] text-white hover:bg-[#2BAEFF]"
-                  }`}
+                  className="mt-6 rounded-md px-4 py-2 text-center font-medium bg-[#2BAEFF] text-white transition-colors duration-200 group-hover:bg-white group-hover:text-[#2BAEFF]"
                 >
-                  Get Started Now
-                </a>
+                  {plan.id === "enterprise" ? "GET A QUOTE" : "Get Started"}
+                </Link>
 
-                <ul className="mt-6 space-y-3 flex-1">
-                  {plan.features.map((feature) => (
+                <ul className="mt-6 space-y-3" id={`features-${plan.id}`}>
+                  {visible.map((feature) => (
                     <li key={feature} className="flex items-start gap-2 text-sm">
-                      <CheckCircle2
-                        className={`h-5 w-5 ${
-                          plan.highlight ? "text-white" : "text-[#2BAEFF]"
-                        }`}
-                      />
+                      <CheckCircle2 className="h-5 w-5 text-[#2BAEFF] transition-colors duration-200 group-hover:text-white" />
                       <span>{feature}</span>
                     </li>
                   ))}
                 </ul>
-              </div>
+
+                {hasOverflow && (
+                  <button
+                    type="button"
+                    onClick={() => setExpanded((s) => ({ ...s, [plan.id]: !isExpanded }))}
+                    className="mt-4 self-start text-sm font-medium underline text-[#2BAEFF] hover:opacity-90 transition-colors duration-200 group-hover:text-white"
+                    aria-expanded={isExpanded}
+                    aria-controls={`features-${plan.id}`}
+                  >
+                    {isExpanded ? "See less" : "See more"}
+                  </button>
+                )}
+              </article>
             );
           })}
         </div>

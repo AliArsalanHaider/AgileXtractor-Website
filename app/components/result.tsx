@@ -1,9 +1,8 @@
-// app/components/result.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-export default function Result() {
+export default function Result({ initialFile }: { initialFile?: File | null }) {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -12,32 +11,29 @@ export default function Result() {
   const [apiResult, setApiResult] = useState<any | null>(null);
   const [isPdf, setIsPdf] = useState(false);
 
-  // credits/email
+  const [rotation, setRotation] = useState<number>(0);
+  const [pdfScale, setPdfScale] = useState<number>(1);
+
   const [email, setEmail] = useState<string>("");
   const [credits, setCredits] = useState<{ remaining: number; total: number } | null>(null);
   const [hasRegistered, setHasRegistered] = useState(false);
-  const [registering, setRegistering] = useState(false); // NEW: register button loading
+  const [registering, setRegistering] = useState(false);
 
-  // pan state for images
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
 
-  // fullscreen
   const [showFull, setShowFull] = useState(false);
   const fullRef = useRef<HTMLDivElement | null>(null);
 
-  // containers/refs
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
   const fsWrapRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
 
-  // fullscreen close-button visibility
   const [fsControlsVisible, setFsControlsVisible] = useState(false);
   const fsHideTimer = useRef<number | null>(null);
   const fsHoveringClose = useRef(false);
 
-  // Download format menu
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
   const dlMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -58,15 +54,28 @@ export default function Result() {
 
   const computeFitTo = (container: HTMLElement | null) => {
     const img = imgRef.current;
-    if (!container || !img) return;
-    const iw = img.naturalWidth || 0;
-    const ih = img.naturalHeight || 0;
-    if (!iw || !ih) return;
+    if (!container) return;
+
     const rect = container.getBoundingClientRect();
     const cw = rect.width;
     const ch = rect.height;
     if (!cw || !ch) return;
-    const scale = Math.min(cw / iw, ch / ih);
+
+    if (isPdf) {
+      const needsSwap = (rotation % 180) !== 0;
+      const s = needsSwap ? Math.min(cw / ch, ch / cw) : 1;
+      setPdfScale(s);
+      return;
+    }
+
+    if (!img) return;
+    const iw = img.naturalWidth || 0;
+    const ih = img.naturalHeight || 0;
+    if (!iw || !ih) return;
+    const needsSwap = (rotation % 180) !== 0;
+    const rw = needsSwap ? ih : iw;
+    const rh = needsSwap ? iw : ih;
+    const scale = Math.min(cw / rw, ch / rh);
     setZoom(scale);
     setPan({ x: 0, y: 0 });
   };
@@ -135,21 +144,49 @@ export default function Result() {
     } catch {}
   }, []);
 
-  // Choose file
+  // ---------- FILE LOAD HELPERS ----------
+  const revokePreview = () => {
+    if (preview) URL.revokeObjectURL(preview);
+  };
+
+  const loadFileIntoViewer = (f: File) => {
+    setError(null);
+    setApiResult(null);
+    setPan({ x: 0, y: 0 });
+    setRotation(0);
+    setPdfScale(1);
+
+    revokePreview();
+
+    setFile(f);
+    const url = URL.createObjectURL(f);
+    setPreview(url);
+    setIsPdf(f.type === "application/pdf");
+  };
+
+  // ▶️ When initialFile prop arrives (from sample button), load it immediately
+  useEffect(() => {
+    if (initialFile) {
+      loadFileIntoViewer(initialFile);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFile]);
+
+  // Choose file (manual)
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] || null;
-    setFile(f);
-    setApiResult(null);
-    setError(null);
-    setPan({ x: 0, y: 0 });
-    setShowFull(false);
-
     if (f) {
-      setPreview(URL.createObjectURL(f));
-      setIsPdf(f.type === "application/pdf");
+      loadFileIntoViewer(f);
     } else {
+      revokePreview();
+      setFile(null);
       setPreview(null);
       setIsPdf(false);
+      setApiResult(null);
+      setError(null);
+      setPan({ x: 0, y: 0 });
+      setRotation(0);
+      setPdfScale(1);
     }
   };
 
@@ -165,14 +202,14 @@ export default function Result() {
       reader.onerror = (err) => reject(err);
     });
 
-  // Count "documents" from result (each non-empty detected_data = 1 doc)
+  // Count "documents" from result
   const countDocsFromResult = (result: any): number => {
     const arr = Array.isArray(result?.images_results) ? result.images_results : [];
     const docs = arr.map((x: any) => x?.detected_data || null).filter(Boolean);
     return docs.length;
   };
 
-  // Upload -> extract -> slice to affordable -> charge -> show
+  // Upload -> extract -> charge
   const handleUploadAndExtract = async () => {
     if (!file) {
       setError("Please select a file first.");
@@ -188,14 +225,12 @@ export default function Result() {
     setApiResult(null);
 
     try {
-      // pre-check credits (avoid rendering results if <100)
       const c0 = await refreshCredits(email);
       if ((c0?.remaining ?? 0) < 100) {
         setError("All credits are consumed. Please purchase one of our plans.");
         return;
       }
 
-      // extract first (no charge yet)
       const base64 = await fileToBase64(file);
       const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
       const resp = await fetch("/api/upload", {
@@ -211,12 +246,11 @@ export default function Result() {
 
       const docsDetected = Math.max(0, countDocsFromResult(json));
       if (!docsDetected) {
-        await refreshCredits(email); // keep UI in sync
+        await refreshCredits(email);
         setError("No documents detected. No credits charged.");
         return;
       }
 
-      // re-check credits now
       const c1 = await refreshCredits(email);
       const remaining = c1?.remaining ?? 0;
       const affordableDocs = Math.floor(remaining / 100);
@@ -227,7 +261,6 @@ export default function Result() {
 
       const docsToCharge = Math.max(1, Math.min(docsDetected, affordableDocs));
 
-      // slice result if needed
       let displayResult = json;
       if (docsDetected > docsToCharge) {
         const arr = Array.isArray(json?.images_results) ? json.images_results : [];
@@ -236,7 +269,6 @@ export default function Result() {
         setError(`Only processed ${docsToCharge} of ${docsDetected} document(s) due to credit limit.`);
       }
 
-      // charge
       const consumeRes = await fetch("/api/credits/consume", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -261,12 +293,10 @@ export default function Result() {
         total: d.totalCredits ?? d.Total_Credits ?? 0,
       });
 
-      // show result only after successful charge
       setApiResult(displayResult);
     } catch (e: any) {
       console.error("Extract error:", e);
       setError(e?.message || "Error extracting data");
-      // report no-op (no charge)
       try {
         await fetch("/api/credits/consume", {
           method: "POST",
@@ -414,9 +444,10 @@ export default function Result() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showFull]);
 
-  const onImageLoad = () => {
+  useEffect(() => {
     computeFitTo(showFull ? fsWrapRef.current : previewWrapRef.current);
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rotation, isPdf, showFull]);
 
   useEffect(() => {
     const onR = () => computeFitTo(showFull ? fsWrapRef.current : previewWrapRef.current);
@@ -446,6 +477,14 @@ export default function Result() {
       document.removeEventListener("mousedown", onDocDown);
       document.removeEventListener("touchstart", onDocDown);
     };
+  }, []);
+
+  // Revoke object URL on unmount
+  useEffect(() => {
+    return () => {
+      revokePreview();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -561,6 +600,32 @@ export default function Result() {
                   </svg>
                   <span className="text-sm">{isPdf ? "Open" : ""}</span>
                 </button>
+
+                {/* Rotate buttons */}
+                <div className="ml-2 inline-flex items-center gap-2">
+                  <button
+                    onClick={() => setRotation((r) => (r + 270) % 360)}
+                    className="inline-flex items-center justify-center p-1.5 rounded-md bg-transparent text-white/90 border border-white/30 hover:bg-white/10 hover:border-white/50 transition shadow-none"
+                    aria-label="Rotate left"
+                    title="Rotate left 90°"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M7 7v4H3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M12 5a7 7 0 1 1-7 7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => setRotation((r) => (r + 90) % 360)}
+                    className="inline-flex items-center justify-center p-1.5 rounded-md bg-transparent text-white/90 border border-white/30 hover:bg-white/10 hover:border-white/50 transition shadow-none"
+                    aria-label="Rotate right"
+                    title="Rotate right 90°"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M17 7v4h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M12 5a7 7 0 1 0 7 7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                </div>
               </div>
 
               {/* File preview frame */}
@@ -588,7 +653,14 @@ export default function Result() {
                 }}
               >
                 {isPdf ? (
-                  <iframe src={preview!} className="w-full h-full rounded-lg" title="PDF Preview" />
+                  <div className="w-full h-full flex items-center justify-center">
+                    <div
+                      className="w-full h-full"
+                      style={{ transform: `rotate(${rotation}deg) scale(${pdfScale})`, transformOrigin: "center" }}
+                    >
+                      <iframe src={preview!} className="w-full h-full rounded-lg" title="PDF Preview" />
+                    </div>
+                  </div>
                 ) : (
                   <img
                     ref={imgRef}
@@ -596,7 +668,7 @@ export default function Result() {
                     alt="Preview"
                     className="max-w-none max-h-none object-contain"
                     style={{
-                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) rotate(${rotation}deg)`,
                       transformOrigin: "center",
                     }}
                     draggable={false}
@@ -625,7 +697,7 @@ export default function Result() {
 
       {/* RIGHT: Results */}
       <div className="flex-1 max-w-[640px] min-w-[360px] bg-white rounded-2xl p-6 shadow-lg overflow-y-auto">
-        {/* Top row: Credits (left) + Download (right) */}
+        {/* Top row: Credits + Download */}
         <div className="flex items-center justify-between mb-2" ref={dlMenuRef}>
           <div className="text-sm text-sky-500 font-medium">
             {credits ? (
@@ -652,22 +724,13 @@ export default function Result() {
 
             {showDownloadMenu && (
               <div className="absolute right-0 mt-2 w-44 rounded-lg border border-gray-200 bg-white shadow-lg z-20 overflow-hidden">
-                <button
-                  onClick={() => downloadBlob(JSON.stringify(getRowsForExport(), null, 2), "application/json", "json")}
-                  className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
-                >
+                <button onClick={() => handleDownload("json")} className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm">
                   JSON (.json)
                 </button>
-                <button
-                  onClick={() => downloadBlob(toCSV(getRowsForExport()), "text/csv", "csv")}
-                  className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
-                >
+                <button onClick={() => handleDownload("csv")} className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm">
                   CSV (.csv)
                 </button>
-                <button
-                  onClick={() => downloadBlob(toTXT(getRowsForExport()), "text/plain", "txt")}
-                  className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
-                >
+                <button onClick={() => handleDownload("txt")} className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm">
                   Text (.txt)
                 </button>
               </div>
@@ -684,11 +747,13 @@ export default function Result() {
         )}
 
         {!allDetectedData.length && !error && (
-          <p className="text-gray-500">No data extracted yet.</p>
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 text-lg">
+            No extracted data yet. Please upload a file and click Extract.
+          </div>
         )}
 
         {allDetectedData.length > 0 && (
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-6 mt-4">
             {allDetectedData.map((data: any, idx: number) => (
               <div key={idx} className="grid grid-cols-1 gap-5 border p-4 rounded-lg">
                 <h3 className="text-lg font-medium text-blue-600 mb-2">Document {idx + 1}</h3>
@@ -737,7 +802,7 @@ export default function Result() {
               alt="Fullscreen Preview"
               className="max-w-none max-h-none object-contain"
               style={{
-                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) rotate(${rotation}deg)`,
                 transformOrigin: "center",
               }}
               draggable={false}

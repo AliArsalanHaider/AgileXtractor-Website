@@ -1,4 +1,3 @@
-﻿-- baseline placeholder; this migration already exists in the database
 -- CreateTable
 CREATE TABLE "public"."credits" (
     "Account_ID" SERIAL NOT NULL,

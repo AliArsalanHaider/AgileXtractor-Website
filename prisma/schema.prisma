@@ -1,12 +1,13 @@
-// prisma/schema.prisma
+// prisma/schema.prisma  (use your actual path)
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL") // pooled (POSTGRES_PRISMA_URL on Vercel)
-  directUrl = env("DIRECT_URL")   // non-pooled (POSTGRES_URL_NON_POOLING on Vercel)
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model Registration {
@@ -17,5 +18,11 @@ model Registration {
   remainingCredits Int      @default(0)                   @map("Remaining_Credits")
   active           Boolean  @default(true)                @map("Active")
 
-  @@map("credits") // the physical table name is "credits"
+  // keep JSON profile
+  profile          Json?    @db.JsonB                     @map("Profile")
+
+  createdAt        DateTime @default(now())               @map("Created_At")
+  updatedAt        DateTime @updatedAt                    @map("Updated_At")
+
+  @@map("credits")
 }
