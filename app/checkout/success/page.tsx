@@ -2,14 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { Metadata } from "next";
 import { loadStripe } from "@stripe/stripe-js";
-
-// (Optional) page-level SEO. We avoid indexing this page.
-export const metadata: Metadata = {
-  title: "Checkout Success",
-  robots: { index: false, follow: false, nocache: true },
-};
 
 type Mode = "subscription" | "payment" | "setup" | "free" | "unknown";
 
@@ -25,7 +18,6 @@ export default function SuccessPage() {
       const sessionId = params.get("session_id");
       const free = params.get("free");
 
-      // Free plan path (your server appended ?free=1)
       if (free) {
         if (!mounted) return;
         setMode("free");
@@ -33,16 +25,13 @@ export default function SuccessPage() {
         return;
       }
 
-      // Stripe Checkout success (subscription)
       if (sessionId) {
         if (!mounted) return;
         setMode("subscription");
-        // You might confirm on the server via sessionId, but we show success here.
         setOk(true);
         return;
       }
 
-      // Payment Intents / Setup Intents success URLs
       const pubKey = process.env.NEXT_PUBLIC_STRIPE_PUBLIC_KEY || "";
       const stripe = pubKey ? await loadStripe(pubKey) : null;
 
@@ -65,7 +54,6 @@ export default function SuccessPage() {
         return;
       }
 
-      // Fallback: show a generic success “handoff complete”
       if (!mounted) return;
       setMode("unknown");
       setOk(true);
@@ -111,7 +99,6 @@ export default function SuccessPage() {
           </a>
         </div>
 
-        {/* Tiny status line for debugging (optional) */}
         <p className="mt-4 text-xs text-gray-400">
           Mode: {mode} • Status: {ok ? "ok" : "pending"}
         </p>
