@@ -1,23 +1,16 @@
 // app/get-started/GetStartedClient.tsx
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
 
-type Plan = "free" | "basic" | "premium";
-type Cycle = "monthly" | "yearly";
+type Props = {
+  plan: "free" | "basic" | "premium";
+  cycle: "monthly" | "yearly";
+};
 
-export default function GetStartedClient({
-  initialPlan,
-  initialCycle,
-}: {
-  initialPlan: Plan;
-  initialCycle: Cycle;
-}) {
+export default function GetStartedClient({ plan, cycle }: Props) {
   const router = useRouter();
-
-  const plan = initialPlan;
-  const cycle = initialCycle;
 
   // form state
   const [email, setEmail] = useState("");
@@ -70,7 +63,7 @@ export default function GetStartedClient({
       return;
     }
 
-    // Show "Coming Soon", then redirect home
+    // Show "Coming soon", then redirect home
     setShowModal(true);
     setSeconds(5);
     const iv = setInterval(() => setSeconds((s) => s - 1), 1000);
@@ -79,7 +72,7 @@ export default function GetStartedClient({
       router.push("/");
     }, 5000);
 
-    // cleanup if navigate early
+    // cleanup if navigate away early
     return () => {
       clearInterval(iv);
       clearTimeout(to);
@@ -195,7 +188,7 @@ export default function GetStartedClient({
   );
 }
 
-/* ——— UI helpers ——— */
+/* ——— tiny UI helpers ——— */
 function Input({
   label,
   value,
