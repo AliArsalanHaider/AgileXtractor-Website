@@ -1,17 +1,79 @@
 // app/api/credits/status/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { getStatus } from "@/lib/credits";
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+function norm(s: unknown) {
+  return String(s ?? "").toLowerCase().trim();
+}
 
-export async function GET(req: NextRequest) {
-  const email = req.nextUrl.searchParams.get("email") || "";
-  if (!email) {
-    return NextResponse.json({ ok: false, error: "email required" }, { status: 400 });
+function parseCookie(header: string | null) {
+  const out: Record<string, string> = {};
+  if (!header) return out;
+  for (const part of header.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx === -1) continue;
+    const key = part.slice(0, idx).trim();
+    const val = part.slice(idx + 1).trim();
+    try {
+      out[key] = decodeURIComponent(val);
+    } catch {
+      out[key] = val;
+    }
   }
-  const row = await getStatus(email);
-  if (!row) return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
-  return NextResponse.json({ ok: true, data: row }, { status: 200 });
+  return out;
+}
+
+export async function GET(req: Request) {
+  try {
+    const url = new URL(req.url);
+
+    // Prefer query param; fall back to cookie header (agx_email/email)
+    const cookieJar = parseCookie(req.headers.get("cookie"));
+    const email = norm(
+      url.searchParams.get("email") ||
+      cookieJar["agx_email"] ||
+      cookieJar["email"]
+    );
+
+    if (!email) {
+      return NextResponse.json({ error: "Missing email" }, { status: 400 });
+    }
+
+    // Case-insensitive lookup
+    const row = await prisma.registration.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
+      select: {
+        accountId: true,
+        email: true,
+        totalCredits: true,
+        consumedCredits: true,
+        remainingCredits: true,
+      },
+    });
+
+    if (!row) {
+      return NextResponse.json({ error: "Account not found" }, { status: 404 });
+    }
+
+    // Normalize stored casing to lowercase (best-effort)
+    if (row.email !== email) {
+      try {
+        await prisma.registration.update({
+          where: { accountId: row.accountId },
+          data: { email },
+        });
+      } catch {
+        /* ignore races */
+      }
+    }
+
+    return NextResponse.json({
+      total: row.totalCredits,
+      used: row.consumedCredits,
+      remaining: row.remainingCredits,
+    });
+  } catch (e) {
+    console.error("credits/status error:", e);
+    return NextResponse.json({ error: "Unexpected error" }, { status: 500 });
+  }
 }

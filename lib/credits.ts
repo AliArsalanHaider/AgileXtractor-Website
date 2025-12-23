@@ -1,23 +1,13 @@
 // lib/credits.ts
-import { PrismaClient, Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
 
-// Reuse Prisma client in dev to avoid connection storms with HMR
-declare global {
-  // eslint-disable-next-line no-var
-  var __prisma__: PrismaClient | undefined;
-}
+// --- Config (read from env, with safe fallbacks) ---
+const STARTING_CREDITS = Number(
+  process.env.CREDITS_TRIAL ?? process.env.CREDITS_MONTHLY_FREE ?? 0
+);
+const COST_PER_DOC = Number(process.env.CREDITS_COST_PER_DOC ?? 100);
 
-export const prisma =
-  global.__prisma__ ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
-  });
-
-if (process.env.NODE_ENV !== "production") global.__prisma__ = prisma;
-
-const STARTING_CREDITS = 500;
-const COST_PER_DOC = 100;
-
+// Basic email sanity
 const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
 // Compute remaining from totals (clamped to 0)
@@ -47,6 +37,8 @@ function expose(row: any) {
   };
 }
 
+// ---- Public API ----
+
 export async function getStatus(email: string) {
   if (!isValidEmail(email)) return null;
   const row = await prisma.registration.findUnique({ where: { email } });
@@ -63,18 +55,16 @@ export async function register(email: string) {
   // Do NOT reset credits if user exists already
   const row = await prisma.registration.upsert({
     where: { email },
-    update: {},
+    update: {}, // keep existing totals intact
     create: {
       email,
       totalCredits: STARTING_CREDITS,
       consumedCredits: 0,
-      // keep stored remaining in sync on create
-      remainingCredits: STARTING_CREDITS,
+      remainingCredits: STARTING_CREDITS, // keep stored remaining in sync on create
       active: true,
     },
   });
 
-  // Expose computed remaining so manual totalCredits edits reflect immediately
   return expose(row);
 }
 
@@ -91,7 +81,7 @@ export async function addPaidCredits(email: string, add: number) {
   }
 
   // Update total, and recompute remaining from (newTotal - consumed)
-  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+  return prisma.$transaction(async (tx) => {
     const found = await tx.registration.findUnique({ where: { email } });
     if (!found) {
       const err = new Error("account not found");
@@ -116,7 +106,7 @@ export async function addPaidCredits(email: string, add: number) {
 type ConsumeArg =
   | number
   | {
-      docs?: number;   // charges docs * 100 if amount not provided
+      docs?: number;   // charges docs * COST_PER_DOC if amount not provided
       amount?: number; // explicit amount to charge
       ok?: boolean;    // if false => no charge (e.g., error path)
     };
@@ -154,7 +144,7 @@ export async function consume(email: string, arg: ConsumeArg) {
 
   // Atomic charge with available computed from (total - consumed),
   // so manual increases to totalCredits are honored immediately.
-  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+  return prisma.$transaction(async (tx) => {
     const found = await tx.registration.findUnique({ where: { email } });
     if (!found) {
       const err = new Error("account not found");
@@ -174,14 +164,14 @@ export async function consume(email: string, arg: ConsumeArg) {
       throw err;
     }
 
-    const newConsumed = (found.consumedCredits ?? 0) + amount;
-    const newRemaining = computeRemaining(found.totalCredits ?? 0, newConsumed);
-
     const updated = await tx.registration.update({
       where: { email },
       data: {
         consumedCredits: { increment: amount },
-        remainingCredits: newRemaining, // keep stored remaining in sync
+        remainingCredits: computeRemaining(
+          found.totalCredits ?? 0,
+          (found.consumedCredits ?? 0) + amount
+        ),
       },
     });
 

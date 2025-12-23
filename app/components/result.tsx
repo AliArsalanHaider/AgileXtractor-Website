@@ -1,55 +1,214 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 
+/* ============================ Identity ============================ */
+// read cookie safely
+function readCookie(name: string) {
+  if (typeof document === "undefined") return undefined;
+  return document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`))?.[1];
+}
+
+// normalized identity (window.__USER__ → cookies → localStorage → /api/auth/me)
+async function resolveIdentity(): Promise<{ email?: string; accountId?: string; displayName?: string }> {
+  // 1) window.__USER__
+  const winUser = (typeof window !== "undefined" ? (window as any).__USER__ : undefined) || {};
+  let email: string | undefined = winUser.email || undefined;
+  let name: string | undefined = winUser.name || undefined;
+  let accountId: string | undefined = winUser.accountId || undefined;
+
+  // 2) cookies
+  if (!email) {
+    const c = readCookie("agx_email") || readCookie("email");
+    if (c) email = decodeURIComponent(c);
+  }
+  if (!name) {
+    const n = readCookie("displayName") || readCookie("userName");
+    if (n) name = decodeURIComponent(n);
+  }
+  if (!accountId) {
+    const c = readCookie("accountId");
+    if (c) accountId = decodeURIComponent(c);
+  }
+
+  // 3) localStorage fallbacks
+  if (typeof window !== "undefined") {
+    try {
+      if (!email) email = localStorage.getItem("email") || undefined;
+      if (!name) name = localStorage.getItem("userName") || undefined;
+      if (!accountId) accountId = localStorage.getItem("accountId") || undefined;
+    } catch {}
+  }
+
+  // 4) server check (cookie session)
+  if (!email) {
+    try {
+      const r = await fetch("/api/auth/me", { cache: "no-store" });
+      if (r.ok) {
+        const j = await r.json();
+        if (j?.email) email = j.email;
+        if (j?.name) name = j.name;
+        if (j?.accountId) accountId = j.accountId;
+      }
+    } catch {}
+  }
+
+  const displayName = name || (email ? email.split("@")[0] : "User");
+  return { email, accountId, displayName };
+}
+
+/* ============================ Credits ============================ */
+async function fetchCredits(email?: string, accountId?: string) {
+  if (!email && !accountId) return null;
+
+  const qs = new URLSearchParams();
+  if (email) qs.set("email", email);
+  if (accountId) qs.set("accountId", accountId);
+
+  // Try GET
+  let res = await fetch(`/api/credits/status${qs.toString() ? `?${qs}` : ""}`, { method: "GET", cache: "no-store" });
+  // Some routes accept only POST or require body → fallback
+  if (!res.ok && (res.status === 400 || res.status === 405)) {
+    res = await fetch(`/api/credits/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, accountId }),
+    });
+  }
+  if (!res.ok) return null;
+
+  const json = await res.json();
+  const d = json?.data ?? json;
+  // normalize field names
+  return {
+    total: d.total ?? d.totalCredits ?? d.Total_Credits ?? 0,
+    used: d.used ?? d.consumedCredits ?? d.Used_Credits ?? 0,
+    remaining:
+      d.remaining ??
+      d.remainingCredits ??
+      d.Remaining_Credits ??
+      Math.max((d.total ?? d.totalCredits ?? 0) - (d.used ?? d.consumedCredits ?? 0), 0),
+  } as { total: number; used: number; remaining: number };
+}
+
+async function consumeCredits(email: string, accountId: string | undefined, docs: number) {
+  const body: Record<string, any> = { email, docs };
+  if (accountId) body.accountId = accountId;
+  const res = await fetch("/api/credits/consume", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let errMsg = "Failed to consume credits.";
+    try {
+      const j = await res.json();
+      errMsg = j?.error || errMsg;
+    } catch {}
+    const e: any = new Error(errMsg);
+    (e.status = res.status), (e.code = "CONSUME_FAILED");
+    throw e;
+  }
+  const j = await res.json();
+  return j?.data ?? j;
+}
+
+/* ============================ New helpers ============================ */
+/** Compute SHA-256 hex for a File (browser SubtleCrypto). */
+async function sha256File(file: File): Promise<string> {
+  const buf = await file.arrayBuffer();
+  // @ts-ignore - SubtleCrypto exists in browsers
+  const hash = await crypto.subtle.digest("SHA-256", buf);
+  const bytes = Array.from(new Uint8Array(hash));
+  return bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Persist extraction against the most recent matching doc (by sha256 + ownership). */
+async function saveExtractToDoc(file: File, extractResult: any) {
+  try {
+    const sha256 = await sha256File(file);
+    const res = await fetch("/api/documents/save-extract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ sha256, extractResult }),
+    });
+    if (!res.ok) {
+      // Non-fatal for UX; log for troubleshooting.
+      const t = await res.text();
+      console.warn("save-extract failed:", res.status, t);
+    }
+  } catch (e) {
+    console.warn("save-extract error:", e);
+  } finally {
+    // Tell UploadDoc list to refresh so the “View extracted data” icon appears
+    try {
+      window.dispatchEvent(new Event("agx:maybe-refresh-docs"));
+    } catch {}
+  }
+}
+
+/* ========================= Main Component ========================= */
 export default function Result({ initialFile }: { initialFile?: File | null }) {
+  // ---------- Identity ----------
+  const [identity, setIdentity] = useState<{ email?: string; accountId?: string; displayName?: string }>({});
+  const authEmail = identity.email;
+
+  useEffect(() => {
+    let mounted = true;
+    resolveIdentity().then((id) => mounted && setIdentity(id));
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // ---------- File / viewer state ----------
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(1);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [apiResult, setApiResult] = useState<any | null>(null);
   const [isPdf, setIsPdf] = useState(false);
-
+  const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState<number>(0);
   const [pdfScale, setPdfScale] = useState<number>(1);
-
-  const [email, setEmail] = useState<string>("");
-  const [credits, setCredits] = useState<{ remaining: number; total: number } | null>(null);
-  const [hasRegistered, setHasRegistered] = useState(false);
-  const [registering, setRegistering] = useState(false);
-
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
-
-  const [showFull, setShowFull] = useState(false);
-  const fullRef = useRef<HTMLDivElement | null>(null);
-
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
   const fsWrapRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
 
+  // ---------- Credits ----------
+  const [credits, setCredits] = useState<{ total: number; used: number; remaining: number } | null>(null);
+
+  async function refreshCredits() {
+    const c = await fetchCredits(identity.email, identity.accountId);
+    setCredits(c);
+    return c;
+  }
+
+  useEffect(() => {
+    if (!identity.email && !identity.accountId) return;
+    refreshCredits();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identity.email, identity.accountId]);
+
+  // ---------- API result / errors ----------
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [apiResult, setApiResult] = useState<any | null>(null);
+
+  // ---------- fullscreen ----------
+  const [showFull, setShowFull] = useState(false);
   const [fsControlsVisible, setFsControlsVisible] = useState(false);
   const fsHideTimer = useRef<number | null>(null);
   const fsHoveringClose = useRef(false);
-
-  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+  const fullRef = useRef<HTMLDivElement | null>(null);
   const dlMenuRef = useRef<HTMLDivElement | null>(null);
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
 
-  const clearFsHideTimer = () => {
-    if (fsHideTimer.current) {
-      window.clearTimeout(fsHideTimer.current);
-      fsHideTimer.current = null;
-    }
-  };
-
-  const kickShowFsControls = (lingerMs = 1400) => {
-    setFsControlsVisible(true);
-    clearFsHideTimer();
-    fsHideTimer.current = window.setTimeout(() => {
-      if (!fsHoveringClose.current) setFsControlsVisible(false);
-    }, lingerMs);
+  // ---------- helpers ----------
+  const revokePreview = () => {
+    if (preview) URL.revokeObjectURL(preview);
   };
 
   const computeFitTo = (container: HTMLElement | null) => {
@@ -80,73 +239,30 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
     setPan({ x: 0, y: 0 });
   };
 
-  // ===== Credits helpers =====
-  async function refreshCredits(e: string): Promise<{ remaining: number; total: number } | null> {
-    try {
-      const res = await fetch(`/api/credits/status?email=${encodeURIComponent(e)}`, { cache: "no-store" });
-      if (!res.ok) {
-        setCredits(null);
-        setHasRegistered(false);
-        return null;
-      }
-      const json = await res.json();
-      const d = json.data || {};
-      const out = {
-        remaining: d.remainingCredits ?? d.Remaining_Credits ?? 0,
-        total: d.totalCredits ?? d.Total_Credits ?? 0,
+  const kickShowFsControls = (lingerMs = 1400) => {
+    setFsControlsVisible(true);
+    if (fsHideTimer.current) window.clearTimeout(fsHideTimer.current);
+    fsHideTimer.current = window.setTimeout(() => {
+      if (!fsHoveringClose.current) setFsControlsVisible(false);
+    }, lingerMs);
+  };
+
+  const fileToBase64 = (f: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(f);
+      reader.onload = () => {
+        const res = (reader.result as string) || "";
+        resolve(res.includes(",") ? res.split(",")[1] : res);
       };
-      setCredits(out);
-      setHasRegistered(true);
-      return out;
-    } catch {
-      setCredits(null);
-      setHasRegistered(false);
-      return null;
-    }
-  }
+      reader.onerror = (err) => reject(err);
+    });
 
-  async function handleRegister() {
-    if (!email) {
-      setError("Enter your email to register.");
-      return;
-    }
-    setError(null);
-    setRegistering(true);
-    try {
-      const r = await fetch("/api/credits/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      const j = await r.json().catch(() => ({} as any));
-      if (!r.ok) {
-        setError(j?.error || "Registration failed");
-        return;
-      }
-      try {
-        localStorage.setItem("agx_email", email);
-      } catch {}
-      setHasRegistered(true);
-      await refreshCredits(email);
-    } finally {
-      setRegistering(false);
-    }
-  }
-
-  // Restore saved email on mount
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("agx_email");
-      if (saved) {
-        setEmail(saved);
-        refreshCredits(saved);
-      }
-    } catch {}
-  }, []);
-
-  // ---------- FILE LOAD HELPERS ----------
-  const revokePreview = () => {
-    if (preview) URL.revokeObjectURL(preview);
+  // pull detected docs from your API response
+  const countDocsFromResult = (result: any): number => {
+    const arr = Array.isArray(result?.images_results) ? result.images_results : [];
+    const docs = arr.map((x: any) => x?.detected_data || null).filter(Boolean);
+    return docs.length;
   };
 
   const loadFileIntoViewer = (f: File) => {
@@ -164,15 +280,12 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
     setIsPdf(f.type === "application/pdf");
   };
 
-  // ▶️ When initialFile prop arrives (from sample button), load it immediately
+  // initial file
   useEffect(() => {
-    if (initialFile) {
-      loadFileIntoViewer(initialFile);
-    }
+    if (initialFile) loadFileIntoViewer(initialFile);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialFile]);
 
-  // Choose file (manual)
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] || null;
     if (f) {
@@ -190,33 +303,14 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
     }
   };
 
-  // Convert file -> base64 (no data: prefix)
-  const fileToBase64 = (f: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(f);
-      reader.onload = () => {
-        const res = (reader.result as string) || "";
-        resolve(res.includes(",") ? res.split(",")[1] : res);
-      };
-      reader.onerror = (err) => reject(err);
-    });
-
-  // Count "documents" from result
-  const countDocsFromResult = (result: any): number => {
-    const arr = Array.isArray(result?.images_results) ? result.images_results : [];
-    const docs = arr.map((x: any) => x?.detected_data || null).filter(Boolean);
-    return docs.length;
-  };
-
-  // Upload -> extract -> charge
+  // Upload → Extract → Charge (server uses ENV credit cost)
   const handleUploadAndExtract = async () => {
     if (!file) {
       setError("Please select a file first.");
       return;
     }
-    if (!email) {
-      setError("Please enter your email and click Register to get 500 trial credits.");
+    if (!authEmail) {
+      setError("Please log in to use extraction.");
       return;
     }
 
@@ -225,8 +319,9 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
     setApiResult(null);
 
     try {
-      const c0 = await refreshCredits(email);
-      if ((c0?.remaining ?? 0) < 100) {
+      // Ensure we have latest credits
+      const c0 = await refreshCredits();
+      if ((c0?.remaining ?? 0) <= 0) {
         setError("All credits are consumed. Please purchase one of our plans.");
         return;
       }
@@ -246,21 +341,27 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
 
       const docsDetected = Math.max(0, countDocsFromResult(json));
       if (!docsDetected) {
-        await refreshCredits(email);
+        await refreshCredits(); // nothing charged
         setError("No documents detected. No credits charged.");
         return;
       }
 
-      const c1 = await refreshCredits(email);
+      // Check remaining credits again and decide how many docs to charge
+      const c1 = await refreshCredits();
       const remaining = c1?.remaining ?? 0;
-      const affordableDocs = Math.floor(remaining / 100);
-      if (affordableDocs <= 0) {
-        setError("All credits are consumed. Please purchase one of our plans.");
-        return;
-      }
 
-      const docsToCharge = Math.max(1, Math.min(docsDetected, affordableDocs));
+      // Server uses ENV cost per doc, but client doesn’t need to know it;
+      const docsToCharge = Math.max(1, Math.min(docsDetected, 9999));
 
+      // Ask backend to charge for docsToCharge (backend enforces price/availability)
+      const consumed = await consumeCredits(authEmail, identity.accountId, docsToCharge);
+      // Normalize and reflect updated credits
+      const newRemaining =
+        consumed?.remainingCredits ?? consumed?.Remaining_Credits ?? consumed?.remaining ?? remaining;
+      const newTotal = consumed?.totalCredits ?? consumed?.Total_Credits ?? consumed?.total ?? (c1?.total ?? 0);
+      setCredits({ remaining: newRemaining, used: Math.max(newTotal - newRemaining, 0), total: newTotal });
+
+      // If backend limited the number actually charged, optionally trim display
       let displayResult = json;
       if (docsDetected > docsToCharge) {
         const arr = Array.isArray(json?.images_results) ? json.images_results : [];
@@ -269,41 +370,21 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
         setError(`Only processed ${docsToCharge} of ${docsDetected} document(s) due to credit limit.`);
       }
 
-      const consumeRes = await fetch("/api/credits/consume", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, docs: docsToCharge }),
-      });
-      if (!consumeRes.ok) {
-        const j = await consumeRes.json().catch(() => ({}));
-        if (consumeRes.status === 402 || j?.code === "INSUFFICIENT") {
-          setError("All credits are consumed. Please purchase one of our plans.");
-        } else if (consumeRes.status === 404 || j?.code === "NO_ACCOUNT") {
-          setError("No account found. Please register first to get 500 trial credits.");
-        } else {
-          setError(j?.error || "Failed to consume credits.");
-        }
-        return;
-      }
+      // ✅ Persist extraction to the user's matching document by sha256
+      await saveExtractToDoc(file, displayResult);
 
-      const consumeJson = await consumeRes.json();
-      const d = consumeJson?.data || {};
-      setCredits({
-        remaining: d.remainingCredits ?? d.Remaining_Credits ?? 0,
-        total: d.totalCredits ?? d.Total_Credits ?? 0,
-      });
-
+      // Then reflect in UI
       setApiResult(displayResult);
     } catch (e: any) {
       console.error("Extract error:", e);
-      setError(e?.message || "Error extracting data");
-      try {
-        await fetch("/api/credits/consume", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, ok: false, error: "client-extract-error" }),
-        });
-      } catch {}
+      // Show server error or generic
+      if (e?.status === 402 || e?.code === "INSUFFICIENT") {
+        setError("All credits are consumed. Please purchase one of our plans.");
+      } else if (e?.status === 404 || e?.code === "NO_ACCOUNT") {
+        setError("No account found for your login. Please contact support.");
+      } else {
+        setError(e?.message || "Error extracting data");
+      }
     } finally {
       setLoading(false);
     }
@@ -386,14 +467,9 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
   const handleDownload = (format: "json" | "csv" | "txt") => {
     const rows = getRowsForExport();
     if (!rows.length) return;
-
-    if (format === "json") {
-      downloadBlob(JSON.stringify(rows, null, 2), "application/json", "json");
-    } else if (format === "csv") {
-      downloadBlob(toCSV(rows), "text/csv", "csv");
-    } else {
-      downloadBlob(toTXT(rows), "text/plain", "txt");
-    }
+    if (format === "json") downloadBlob(JSON.stringify(rows, null, 2), "application/json", "json");
+    else if (format === "csv") downloadBlob(toCSV(rows), "text/csv", "csv");
+    else downloadBlob(toTXT(rows), "text/plain", "txt");
     setShowDownloadMenu(false);
   };
 
@@ -424,24 +500,19 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
 
   useEffect(() => {
     if (!showFull) return;
-    window.dispatchEvent(new CustomEvent("agx:immersive", { detail: true }));
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setShowFull(false);
-    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setShowFull(false);
     window.addEventListener("keydown", onKey);
-    const previousOverflow = document.body.style.overflow;
+    const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     fullRef.current?.focus();
     requestAnimationFrame(() => computeFitTo(fsWrapRef.current));
-    kickShowFsControls();
+    setFsControlsVisible(true);
+    const t = window.setTimeout(() => setFsControlsVisible(false), 1400);
     return () => {
       window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = previousOverflow;
-      clearFsHideTimer();
-      setFsControlsVisible(false);
-      window.dispatchEvent(new CustomEvent("agx:immersive", { detail: false }));
+      document.body.style.overflow = prev;
+      window.clearTimeout(t);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showFull]);
 
   useEffect(() => {
@@ -454,16 +525,6 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
     window.addEventListener("resize", onR);
     return () => window.removeEventListener("resize", onR);
   }, [showFull, preview, isPdf]);
-
-  const openFullscreen = () => {
-    if (!preview) return;
-    if (isPdf) {
-      window.open(preview, "_blank", "noopener,noreferrer");
-    } else {
-      setPan({ x: 0, y: 0 });
-      setShowFull(true);
-    }
-  };
 
   useEffect(() => {
     const onDocDown = (e: MouseEvent | TouchEvent) => {
@@ -479,21 +540,30 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
     };
   }, []);
 
-  // Revoke object URL on unmount
   useEffect(() => {
-    return () => {
-      revokePreview();
-    };
+    return () => revokePreview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ---------- UI ----------
+  const [showFullState, setShowFullState] = useState(false);
+  const openFullscreen = () => {
+    if (!preview) return;
+    if (isPdf) {
+      window.open(preview, "_blank", "noopener,noreferrer");
+    } else {
+      setPan({ x: 0, y: 0 });
+      setShowFull(true);
+      setShowFullState(true);
+    }
+  };
+
   return (
     <div className="flex h-[80dvh] w-full bg-gray-100 p-6 gap-4">
-      {/* LEFT: File Preview / Controls */}
-      <div className="relative flex-1 max-w-[640px] min-w-[300px] rounded-2xl p-5 shadow-lg flex flex-col">
-        {/* Video Background */}
+      {/* LEFT: File Preview / Controls (with video bg) */}
+      <div className="relative flex-1 max-w-[640px] min-w-[300px] rounded-2xl p-5 shadow-lg flex flex-col overflow-hidden">
         <video
-          className="absolute inset-0 w-full h-full object-cover pointer-events-none rounded-2xl"
+          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
           src="/God rays new.mp4"
           autoPlay
           loop
@@ -501,26 +571,20 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
           playsInline
           aria-hidden="true"
         />
+        <div className="absolute inset-0 bg-black/10 pointer-events-none" />
 
-        {/* Foreground content */}
         <div className="relative z-10 flex flex-col h-full">
-          {/* Email + Register / Status */}
-          {!hasRegistered && (
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter email to use trial credits"
-                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-gray-800 bg-white"
-              />
-              <button
-                onClick={handleRegister}
-                disabled={registering}
-                className="px-3 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-60"
-              >
-                {registering ? "Registering..." : "Register"}
-              </button>
+          {!authEmail && (
+            <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              You must be logged in to use extraction and credits.{" "}
+              <Link href="/login#login" className="underline font-medium">
+                Log in
+              </Link>{" "}
+              or{" "}
+              <Link href="/signup" className="underline font-medium">
+                create an account
+              </Link>
+              .
             </div>
           )}
 
@@ -528,26 +592,15 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
             <div className="flex-1 flex items-center justify-center">
               <label className="cursor-pointer btn-blue px-4 py-2 rounded-lg shadow">
                 Choose File
-                <input
-                  type="file"
-                  accept="image/*,.pdf"
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
+                <input type="file" accept="image/*,.pdf" onChange={handleFileChange} className="hidden" />
               </label>
             </div>
           ) : (
             <>
-              {/* Choose File button (top-left) */}
               <div className="flex justify-start mb-3">
                 <label className="cursor-pointer btn-blue px-4 py-2 rounded-lg shadow">
                   Choose File
-                  <input
-                    type="file"
-                    accept="image/*,.pdf"
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
+                  <input type="file" accept="image/*,.pdf" onChange={handleFileChange} className="hidden" />
                 </label>
               </div>
 
@@ -582,7 +635,6 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
                   </>
                 )}
 
-                {/* Fullscreen button */}
                 <button
                   onClick={openFullscreen}
                   className="ml-4 inline-flex items-left justify-left p-1.5 rounded-md bg-transparent text-white/90 border border-white/30 hover:bg-white/10 hover:border-white/50 transition shadow-none"
@@ -590,18 +642,11 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
                   title={isPdf ? "Open PDF in new tab" : "Open fullscreen"}
                 >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path
-                      d="M8 3H3v5M3 16v5h5M16 3h5v5M21 16v5h-5"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
+                    <path d="M8 3H3v5M3 16v5h5M16 3h5v5M21 16v5h-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                   <span className="text-sm">{isPdf ? "Open" : ""}</span>
                 </button>
 
-                {/* Rotate buttons */}
                 <div className="ml-2 inline-flex items-center gap-2">
                   <button
                     onClick={() => setRotation((r) => (r + 270) % 360)}
@@ -628,7 +673,7 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
                 </div>
               </div>
 
-              {/* File preview frame */}
+              {/* Preview frame */}
               <div
                 ref={previewWrapRef}
                 className={[
@@ -677,12 +722,13 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
                 )}
               </div>
 
-              {/* Upload & Extract button */}
+              {/* Extract */}
               <div className="pt-4">
                 <button
                   onClick={handleUploadAndExtract}
-                  disabled={loading}
-                  className="w-full btn-blue hover:bg-blue-200 text-blue-800 font-medium py-2 rounded-lg shadow disabled:opacity-60"
+                  disabled={loading || !authEmail}
+                  className="w-full btn-blue text-white font-medium py-2 rounded-lg shadow disabled:opacity-60"
+                  title={!authEmail ? "Please log in first" : undefined}
                 >
                   {loading ? "Extracting..." : "Extract"}
                 </button>
@@ -695,28 +741,29 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
       {/* Divider */}
       <div className="w-px bg-gray-300 self-stretch" />
 
-      {/* RIGHT: Results */}
+      {/* RIGHT: Results + Credits */}
       <div className="flex-1 max-w-[640px] min-w-[360px] bg-white rounded-2xl p-6 shadow-lg overflow-y-auto">
-        {/* Top row: Credits + Download */}
         <div className="flex items-center justify-between mb-2" ref={dlMenuRef}>
           <div className="text-sm text-sky-500 font-medium">
             {credits ? (
               <>
                 Credits: <span className="font-semibold">{credits.remaining}</span> / {credits.total}
               </>
-            ) : (
+            ) : authEmail ? (
               <span className="opacity-70">Credits: —</span>
+            ) : (
+              <span className="opacity-70">Log in to see credits</span>
             )}
           </div>
 
-          <div className="relative">
+        <div className="relative">
             <button
               onClick={() => {
                 if (!allDetectedData.length && !apiResult) return;
                 setShowDownloadMenu((s) => !s);
               }}
               disabled={!allDetectedData.length && !apiResult}
-              className="cursor-pointer btn-blue text-blue-700 px-4 py-2 rounded-lg shadow hover:bg-blue-50 disabled:opacity-60"
+              className="cursor-pointer btn-blue px-4 py-2 rounded-lg shadow disabled:opacity-60"
               aria-label="Download Data"
             >
               Download
@@ -740,11 +787,7 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
 
         <div className="pb-3 border-b border-gray-300" />
 
-        {error && (
-          <div className="mb-4 rounded border border-red-300 bg-red-50 px-3 py-2 text-red-700">
-            {error}
-          </div>
-        )}
+        {error && <div className="mb-4 rounded border border-red-300 bg-red-50 px-3 py-2 text-red-700">{error}</div>}
 
         {!allDetectedData.length && !error && (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 text-lg">
@@ -780,12 +823,19 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
           role="dialog"
           aria-modal="true"
           tabIndex={-1}
-          className="fixed inset-0 z-[1000] bg-black/95 backdrop-blur-2xl supports-[backdrop-filter]:bg-black/90 focus:outline-none overflow-hidden"
+          className="fixed inset-0 z-1000 bg-black/95 backdrop-blur-2xl focus:outline-none overflow-hidden"
           onWheel={(e) => e.preventDefault()}
-          onMouseMove={() => kickShowFsControls()}
-          onTouchStart={() => kickShowFsControls(2000)}
+          onMouseMove={() => {
+            setFsControlsVisible(true);
+            if (fsHideTimer.current) window.clearTimeout(fsHideTimer.current);
+            fsHideTimer.current = window.setTimeout(() => setFsControlsVisible(false), 1400);
+          }}
+          onTouchStart={() => {
+            setFsControlsVisible(true);
+            if (fsHideTimer.current) window.clearTimeout(fsHideTimer.current);
+            fsHideTimer.current = window.setTimeout(() => setFsControlsVisible(false), 2000);
+          }}
         >
-          {/* Viewer layer */}
           <div
             ref={fsWrapRef}
             className={[
@@ -810,20 +860,15 @@ export default function Result({ initialFile }: { initialFile?: File | null }) {
             />
           </div>
 
-          {/* Bottom-center Close button */}
           <button
             onClick={() => setShowFull(false)}
             onMouseEnter={() => {
               fsHoveringClose.current = true;
-              clearFsHideTimer();
               setFsControlsVisible(true);
             }}
             onMouseLeave={() => {
               fsHoveringClose.current = false;
-              kickShowFsControls();
             }}
-            onFocus={() => setFsControlsVisible(true)}
-            onBlur={() => kickShowFsControls()}
             className={[
               "z-20 fixed left-1/2 -translate-x-1/2",
               "bottom-4 transition-all duration-300",

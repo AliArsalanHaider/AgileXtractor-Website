@@ -107,10 +107,13 @@ export default function Pricing() {
                 {/* Price display */}
                 <div className="mt-4">
                   {plan.id === "enterprise" ? (
-                    // Always show GET A QUOTE (no numbers) for enterprise
-                    <p className="text-xl font-bold">
-                      <span className="text-2xl font-bold tracking-wide">GET A QUOTE</span>
-                    </p>
+                    <>
+                      <p className="text-xl font-bold">
+                        <span className="text-2xl font-bold tracking-wide">GET A QUOTE</span>
+                      </p>
+                      {/* Invisible spacer to match "Billed ..." line height on other cards */}
+                      <p className="mt-1 text-xs opacity-0">spacer</p>
+                    </>
                   ) : cycle === "monthly" ? (
                     <>
                       <p className="text-xl font-bold">

@@ -1,36 +1,38 @@
-// app/api/credits/consume/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { consume } from "@/lib/credits";
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { z } from "zod";
+import { getCostPerDoc } from "@/lib/env";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+const bodySchema = z.object({
+  email: z.string().email(),
+  amount: z.number().int().min(1).optional(), // if omitted, we’ll use cost-per-doc
+});
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const email = String(body?.email || "");
-    if (!email) {
-      return NextResponse.json({ ok: false, error: "email required" }, { status: 400 });
-    }
+    const { email, amount } = bodySchema.parse(await req.json());
+    const normalizedEmail = email.toLowerCase().trim();
+    const debit = typeof amount === "number" ? amount : getCostPerDoc();
 
-    // Accept either { docs } or { amount } or { ok:false } (no charge)
-    const docs = body?.docs;
-    const amount = body?.amount;
-    const ok = body?.ok;
+    const row = await prisma.registration.findUnique({ where: { email: normalizedEmail } });
+    if (!row) return NextResponse.json({ error: "Account not found" }, { status: 404 });
 
-    const data = await consume(email, { docs, amount, ok });
-    return NextResponse.json({ ok: true, data }, { status: 200 });
-  } catch (err: any) {
-    const code = err?.code || "ERROR";
-    const status =
-      code === "INSUFFICIENT" ? 402 :
-      code === "NO_ACCOUNT" ? 404 :
-      code === "INVALID_EMAIL" ? 400 : 400;
+    const consumed = row.consumedCredits + debit;
+    const remaining = Math.max(row.totalCredits - consumed, 0);
 
-    return NextResponse.json(
-      { ok: false, code, error: err?.message || "error" },
-      { status }
-    );
+    const updated = await prisma.registration.update({
+      where: { email: normalizedEmail },
+      data: { consumedCredits: consumed, remainingCredits: remaining },
+      select: { totalCredits: true, consumedCredits: true, remainingCredits: true },
+    });
+
+    return NextResponse.json({
+      ok: true,
+      total: updated.totalCredits,
+      used: updated.consumedCredits,
+      remaining: updated.remainingCredits,
+    });
+  } catch {
+    return NextResponse.json({ error: "Invalid input" }, { status: 400 });
   }
 }

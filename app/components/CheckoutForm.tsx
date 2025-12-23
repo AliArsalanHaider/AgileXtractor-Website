@@ -1,96 +1,121 @@
+// app/components/CheckoutForm.tsx
 "use client";
 
-import { PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
-export default function CheckoutForm({
-  email,
-  planId,
-  cycle,
-  setupClientSecret,
-}: {
-  email: string;
-  planId: "basic" | "professional";
-  cycle: "monthly" | "yearly";
-  setupClientSecret: string;
-}) {
-  const stripe = useStripe();
-  const elements = useElements();
+export default function CheckoutForm() {
+  const q = useSearchParams();
+  // read defaults from query (e.g., from GetStarted flow)
+  const plan  = (q.get("plan")  as "free" | "basic" | "premium") || "basic";
+  const cycle = (q.get("cycle") as "monthly" | "yearly") || "monthly";
+  const emailPrefill = q.get("email") ?? "";
 
-  const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState(emailPrefill);
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
 
-  const onSubmit = async (e: React.FormEvent) => {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!stripe || !elements) return;
+    setErr("");
 
-    setSubmitting(true);
-    setMessage(null);
+    if (!email || !password) return setErr("Email and password are required.");
+    if (password !== confirm) return setErr("Passwords do not match.");
+    if (!["basic", "premium"].includes(plan)) return setErr("Invalid plan.");
 
-    // 1) Confirm the SetupIntent (collect and save card)
-    const setupRes = await stripe.confirmSetup({
-      elements,
-      confirmParams: {
-        return_url: `${window.location.origin}/checkout/success?plan=${planId}&cycle=${cycle}`,
-      },
-      redirect: "if_required",
-    });
-
-    if (setupRes.error) {
-      setMessage(setupRes.error.message || "Card setup failed. Please try again.");
-      setSubmitting(false);
-      return;
-    }
-
-    // Get the payment_method id from the SetupIntent
-    const setupIntent = setupRes.setupIntent;
-    const paymentMethodId = (setupIntent?.payment_method as string) || "";
-
-    if (!paymentMethodId) {
-      setMessage("No payment method was created. Please try again.");
-      setSubmitting(false);
-      return;
-    }
-
-    // 2) Create the subscription with that saved card
-    const actRes = await fetch("/api/activate-subscription", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, planId, cycle, paymentMethodId }),
-    });
-    const actData = await actRes.json();
-    if (!actRes.ok) {
-      setMessage(actData.error || "Failed to activate subscription.");
-      setSubmitting(false);
-      return;
-    }
-
-    // 3) If 3DS is required now, confirm the PaymentIntent
-    if (actData.requiresActionClientSecret) {
-      const confirmRes = await stripe.confirmCardPayment(actData.requiresActionClientSecret);
-      if (confirmRes.error) {
-        setMessage(confirmRes.error.message || "Authentication failed. Please try again.");
-        setSubmitting(false);
-        return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/checkout/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          name, email, password, plan, cycle,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({} as any));
+        throw new Error(j?.error || `Failed (HTTP ${res.status})`);
       }
+      const { url } = await res.json();
+      window.location.href = url; // Go to Stripe Checkout
+    } catch (e: any) {
+      setErr(e?.message || "Unexpected error");
+    } finally {
+      setLoading(false);
     }
-
-    // Success — go to your success page
-    window.location.href = "/checkout/success";
-  };
+  }
 
   return (
-    <form onSubmit={onSubmit} className="mt-8 rounded-2xl border border-gray-200 p-6 shadow-sm">
-      <div className="grid gap-6">
-        <PaymentElement />
-        <button
-          disabled={submitting || !stripe || !elements}
-          className="w-full rounded-xl bg-[#2BAEFF] px-6 py-3 font-semibold text-white hover:opacity-95 disabled:opacity-50"
-        >
-          {submitting ? "Processing…" : "Save card & subscribe"}
-        </button>
-        {message && <p className="text-sm text-red-600">{message}</p>}
+    <form className="space-y-4" onSubmit={onSubmit}>
+      <div>
+        <label className="block text-sm font-medium">Full name</label>
+        <input
+          className="mt-1 w-full rounded-md border px-3 py-2"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Jane Doe"
+        />
       </div>
+
+      <div>
+        <label className="block text-sm font-medium">Email</label>
+        <input
+          className="mt-1 w-full rounded-md border px-3 py-2"
+          type="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@company.com"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <label className="block text-sm font-medium">Password</label>
+          <input
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            type="password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">Confirm password</label>
+          <input
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            type="password"
+            required
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            placeholder="••••••••"
+          />
+        </div>
+      </div>
+
+      <div className="rounded-md bg-slate-50 p-3 text-sm">
+        <div><b>Plan:</b> {plan}</div>
+        <div><b>Billing:</b> {cycle}</div>
+      </div>
+
+      {err && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {err}
+        </div>
+      )}
+
+      <button
+        type="submit"
+        disabled={loading}
+        className="rounded-lg bg-black px-5 py-2.5 text-white disabled:opacity-60"
+      >
+        {loading ? "Redirecting…" : "Continue to secure checkout"}
+      </button>
     </form>
   );
 }
