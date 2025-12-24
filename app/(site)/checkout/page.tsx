@@ -1,5 +1,5 @@
 // app/checkout/page.tsx
-import CheckoutForm from "@/app/components/checkoutForm";
+import CheckoutForm from "@/app/components/CheckoutForm";
 
 export default function CheckoutPage() {
   return (
