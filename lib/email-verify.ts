@@ -12,7 +12,7 @@ export function hashToken(raw: string) {
 /** Create (or reuse valid) token for this email; returns record + `raw` when a fresh token is created. */
 export async function issueEmailVerifyToken(email: string, ttlMs = 3600_000) {
   const now = new Date();
-  const existing = await prisma.EmailVerifyToken.findFirst({
+  const existing = await prisma.emailVerifyToken.findFirst({
     where: { identifier: email, consumedAt: null, expires: { gt: now } },
     orderBy: { createdAt: "desc" },
   });
@@ -22,7 +22,7 @@ export async function issueEmailVerifyToken(email: string, ttlMs = 3600_000) {
   const tokenHash = hashToken(raw);
   const expires = new Date(Date.now() + ttlMs);
 
-  const created = await prisma.EmailVerifyToken.create({
+  const created = await prisma.emailVerifyToken.create({
     data: { identifier: email, tokenHash, expires },
   });
   return { ...created, raw };
