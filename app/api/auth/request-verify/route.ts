@@ -30,20 +30,15 @@ export async function POST(req: Request) {
       select: { id: true, emailVerified: true },
     });
 
-    if (!user) {
-      // silently succeed to avoid user enumeration
+    // Avoid user enumeration
+    if (!user || user.emailVerified) {
       return NextResponse.json({ ok: true });
     }
-    if (user.emailVerified) {
-      return NextResponse.json({ ok: true, alreadyVerified: true });
-    }
 
-    // Remove previous tokens
     await prisma.emailToken.deleteMany({
       where: { email: { equals: email, mode: "insensitive" } },
     });
 
-    // New token
     const token = randomToken(32);
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
@@ -58,15 +53,20 @@ export async function POST(req: Request) {
 
     const hdr = new Headers(req.headers);
     const proto = hdr.get("x-forwarded-proto") || "http";
-    const host = hdr.get("x-forwarded-host") || hdr.get("host") || "localhost:3000";
-    const origin = (process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "")) || `${proto}://${host}`;
+    const host =
+      hdr.get("x-forwarded-host") || hdr.get("host") || "localhost:3000";
+    const origin =
+      process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
+      `${proto}://${host}`;
 
     const verifyUrl = `${origin}/api/auth/verify-email?token=${encodeURIComponent(
       token
     )}&email=${encodeURIComponent(email)}`;
 
     const mail = await sendVerificationEmail(email, verifyUrl);
-    if (!mail.ok) console.warn("Verification email not sent:", mail.error);
+
+    // Optional debug log
+    console.log("Verification email sent:", mail.messageId);
 
     return NextResponse.json({ ok: true });
   } catch (e) {
