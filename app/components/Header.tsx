@@ -268,6 +268,16 @@ export default function Header() {
               priority
             />
           </div>
+           <div className="pointer-events-none absolute bottom-0 left-0 w-full">
+              <Image
+                src="/robot2.png"
+                alt=""
+                width={1920}
+                height={300}
+                priority
+                className="w-full h-auto"
+              />
+            </div>
         </div>
       </div>
 
