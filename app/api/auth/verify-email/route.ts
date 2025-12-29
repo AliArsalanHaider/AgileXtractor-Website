@@ -1,5 +1,7 @@
+// app/api/auth/verify-email/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client"; // ✅ add this
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -22,11 +24,13 @@ export async function GET(req: Request) {
 
   if (!t) {
     // invalid/expired
-    return NextResponse.redirect(new URL(`/login?verified=0&email=${encodeURIComponent(email)}`, req.url));
+    return NextResponse.redirect(
+      new URL(`/login?verified=0&email=${encodeURIComponent(email)}`, req.url)
+    );
   }
 
   // Mark user verified & active; flip Registration.active = true
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.user.update({
       where: { id: t.userId },
       data: { emailVerified: new Date(), status: "active" },

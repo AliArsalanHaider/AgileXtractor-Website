@@ -1,5 +1,6 @@
 // lib/credits.ts
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 
 // --- Config (read from env, with safe fallbacks) ---
 const STARTING_CREDITS = Number(
@@ -16,9 +17,18 @@ function computeRemaining(total: number, consumed: number) {
   return r > 0 ? r : 0;
 }
 
+type RegistrationRow = {
+  accountId: number;
+  email: string;
+  totalCredits: number | null;
+  consumedCredits: number | null;
+  remainingCredits: number | null;
+  active: boolean;
+};
+
 // Keep UI compatibility (camelCase + legacy keys), and always expose computed remaining
-function expose(row: any) {
-  const remaining = computeRemaining(row.totalCredits, row.consumedCredits);
+function expose(row: RegistrationRow) {
+  const remaining = computeRemaining(row.totalCredits ?? 0, row.consumedCredits ?? 0);
   return {
     accountId: row.accountId,
     email: row.email,
@@ -37,18 +47,23 @@ function expose(row: any) {
   };
 }
 
+type CodedError = Error & { code?: string };
+function setCode(err: Error, code: string) {
+  (err as CodedError).code = code;
+}
+
 // ---- Public API ----
 
 export async function getStatus(email: string) {
   if (!isValidEmail(email)) return null;
   const row = await prisma.registration.findUnique({ where: { email } });
-  return row ? expose(row) : null;
+  return row ? expose(row as unknown as RegistrationRow) : null;
 }
 
 export async function register(email: string) {
   if (!isValidEmail(email)) {
     const err = new Error("invalid email");
-    (err as any).code = "INVALID_EMAIL";
+    setCode(err, "INVALID_EMAIL");
     throw err;
   }
 
@@ -65,60 +80,61 @@ export async function register(email: string) {
     },
   });
 
-  return expose(row);
+  return expose(row as unknown as RegistrationRow);
 }
 
 export async function addPaidCredits(email: string, add: number) {
   if (!isValidEmail(email)) {
     const err = new Error("invalid email");
-    (err as any).code = "INVALID_EMAIL";
+    setCode(err, "INVALID_EMAIL");
     throw err;
   }
   if (!Number.isFinite(add) || add <= 0) {
     const err = new Error("add must be > 0");
-    (err as any).code = "BAD_ADD";
+    setCode(err, "BAD_ADD");
     throw err;
   }
 
   // Update total, and recompute remaining from (newTotal - consumed)
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const found = await tx.registration.findUnique({ where: { email } });
     if (!found) {
       const err = new Error("account not found");
-      (err as any).code = "NO_ACCOUNT";
+      setCode(err, "NO_ACCOUNT");
       throw err;
     }
-    const newTotal = (found.totalCredits ?? 0) + add;
-    const newRemaining = computeRemaining(newTotal, found.consumedCredits ?? 0);
+
+    const f = found as unknown as RegistrationRow;
+    const newTotal = (f.totalCredits ?? 0) + add;
+    const newRemaining = computeRemaining(newTotal, f.consumedCredits ?? 0);
 
     const updated = await tx.registration.update({
       where: { email },
       data: {
         totalCredits: { increment: add },
-        remainingCredits: newRemaining, // keep the stored column consistent
+        remainingCredits: newRemaining,
       },
     });
 
-    return expose(updated);
+    return expose(updated as unknown as RegistrationRow);
   });
 }
 
 type ConsumeArg =
   | number
   | {
-      docs?: number;   // charges docs * COST_PER_DOC if amount not provided
-      amount?: number; // explicit amount to charge
-      ok?: boolean;    // if false => no charge (e.g., error path)
+      docs?: number;
+      amount?: number;
+      ok?: boolean;
     };
 
 export async function consume(email: string, arg: ConsumeArg) {
   if (!isValidEmail(email)) {
     const err = new Error("invalid email");
-    (err as any).code = "INVALID_EMAIL";
+    setCode(err, "INVALID_EMAIL");
     throw err;
   }
 
-  // Normalize args
   let ok = true;
   let amount = 0;
 
@@ -131,36 +147,36 @@ export async function consume(email: string, arg: ConsumeArg) {
     amount = direct > 0 ? direct : docs * COST_PER_DOC;
   }
 
-  // No-op charge (e.g., client reported an error or zero docs)
   if (!ok || amount <= 0) {
     const row = await prisma.registration.findUnique({ where: { email } });
     if (!row) {
       const err = new Error("account not found");
-      (err as any).code = "NO_ACCOUNT";
+      setCode(err, "NO_ACCOUNT");
       throw err;
     }
-    return expose(row);
+    return expose(row as unknown as RegistrationRow);
   }
 
-  // Atomic charge with available computed from (total - consumed),
-  // so manual increases to totalCredits are honored immediately.
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const found = await tx.registration.findUnique({ where: { email } });
     if (!found) {
       const err = new Error("account not found");
-      (err as any).code = "NO_ACCOUNT";
-      throw err;
-    }
-    if (!found.active) {
-      const err = new Error("account inactive");
-      (err as any).code = "INACTIVE";
+      setCode(err, "NO_ACCOUNT");
       throw err;
     }
 
-    const available = computeRemaining(found.totalCredits ?? 0, found.consumedCredits ?? 0);
+    const f = found as unknown as RegistrationRow;
+
+    if (!f.active) {
+      const err = new Error("account inactive");
+      setCode(err, "INACTIVE");
+      throw err;
+    }
+
+    const available = computeRemaining(f.totalCredits ?? 0, f.consumedCredits ?? 0);
     if (available < amount) {
       const err = new Error("insufficient credits");
-      (err as any).code = "INSUFFICIENT";
+      setCode(err, "INSUFFICIENT");
       throw err;
     }
 
@@ -169,12 +185,12 @@ export async function consume(email: string, arg: ConsumeArg) {
       data: {
         consumedCredits: { increment: amount },
         remainingCredits: computeRemaining(
-          found.totalCredits ?? 0,
-          (found.consumedCredits ?? 0) + amount
+          f.totalCredits ?? 0,
+          (f.consumedCredits ?? 0) + amount
         ),
       },
     });
 
-    return expose(updated);
+    return expose(updated as unknown as RegistrationRow);
   });
 }

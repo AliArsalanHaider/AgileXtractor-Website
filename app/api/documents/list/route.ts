@@ -12,6 +12,7 @@ function normEmail(e: unknown) {
 function parseCookieHeader(cookieHeader: string | null) {
   const map = new Map<string, string>();
   if (!cookieHeader) return map;
+
   for (const part of cookieHeader.split(";")) {
     const [k, ...v] = part.split("=");
     const key = k?.trim();
@@ -20,6 +21,22 @@ function parseCookieHeader(cookieHeader: string | null) {
   }
   return map;
 }
+
+/**
+ * Strict typing without relying on Prisma model exports.
+ * Matches your SELECT exactly and keeps behavior unchanged.
+ */
+type DocRow = {
+  id: string;
+  originalName: string;
+  sizeBytes: number | null;
+  contentType: string | null;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+  lastExtractAt: Date | null;
+  extractResult: unknown;
+};
 
 export async function GET(req: Request) {
   try {
@@ -40,7 +57,7 @@ export async function GET(req: Request) {
 
     const take = Math.min(Number(url.searchParams.get("take") || 25), 100);
 
-    const docsRaw = await prisma.document.findMany({
+    const docsRaw = (await prisma.document.findMany({
       where: { accountId, email },
       select: {
         id: true,
@@ -55,9 +72,9 @@ export async function GET(req: Request) {
       },
       orderBy: { createdAt: "desc" },
       take,
-    });
+    })) as unknown as DocRow[];
 
-    const docs = docsRaw.map((d) => ({
+    const docs = docsRaw.map((d: DocRow) => ({
       id: d.id,
       originalName: d.originalName,
       sizeBytes: d.sizeBytes,
@@ -71,7 +88,7 @@ export async function GET(req: Request) {
     }));
 
     return NextResponse.json({ ok: true, docs }, { status: 200 });
-  } catch (e) {
+  } catch (e: unknown) {
     console.error("documents/list error:", e);
     return NextResponse.json({ error: "Failed to load documents" }, { status: 500 });
   }

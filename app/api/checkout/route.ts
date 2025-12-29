@@ -2,7 +2,6 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
 import { setActivePlan } from "@/lib/active-plan";
 
 export const runtime = "nodejs";
@@ -60,54 +59,39 @@ export async function POST(req: Request) {
     ============================================================ */
     if (body.buyCredits) {
       if (!stripe) {
-        return NextResponse.json(
-          { error: "Stripe not configured" },
-          { status: 500 }
-        );
+        return NextResponse.json({ error: "Stripe not configured" }, { status: 500 });
       }
 
       const credits = Number(body.credits || 0);
       const amountAED = Number(body.amountAED || 0);
 
       if (!credits || credits < 500) {
-        return NextResponse.json(
-          { error: "Minimum 500 credits required" },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: "Minimum 500 credits required" }, { status: 400 });
       }
 
       if (!amountAED || amountAED <= 0) {
-        return NextResponse.json(
-          { error: "Invalid payment amount" },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: "Invalid payment amount" }, { status: 400 });
       }
 
-      // Create Stripe Checkout Session (one-time)
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
         customer_email: email,
         payment_method_types: ["card"],
-
         line_items: [
           {
             price_data: {
               currency: "aed",
-              product_data: {
-                name: `${credits} Credits`,
-              },
-              unit_amount: Math.round(amountAED * 100), // convert AED → fils
+              product_data: { name: `${credits} Credits` },
+              unit_amount: Math.round(amountAED * 100), // AED -> fils
             },
             quantity: 1,
           },
         ],
-
         success_url: `${origin}/dashboard?payment=success`,
         cancel_url: `${origin}/dashboard?payment=cancelled`,
-
         metadata: {
           credits: credits.toString(),
-          email: email,
+          email,
           type: "credit_purchase",
         },
       });
@@ -116,34 +100,34 @@ export async function POST(req: Request) {
     }
 
     /* ============================================================
-       2) NORMAL SUBSCRIPTION LOGIC (Your Existing Code)
+       2) NORMAL SUBSCRIPTION LOGIC (Same behavior, safer typings)
     ============================================================ */
 
     const plan: Plan = normalizePlan(body.plan as PlanIn | undefined);
     const cycle = (body.cycle ?? "monthly").toString().toLowerCase() as Cycle;
+
     const profilePayload = body.profile as unknown | undefined;
 
     if (cycle !== "monthly" && cycle !== "yearly") {
       return NextResponse.json({ error: "Invalid billing cycle" }, { status: 400 });
     }
 
-    const createPayload: Prisma.RegistrationCreateInput = {
+    // ✅ IMPORTANT CHANGE:
+    // Remove Prisma.*Input types (they break depending on schema/model naming & client gen)
+    // Keep exact functionality: upsert registration + optional profile JSON
+    const createPayload = {
       email,
       active: true,
+      ...(profilePayload !== undefined ? { profile: profilePayload } : {}),
     };
-    if (profilePayload !== undefined) {
-      createPayload.profile = profilePayload as Prisma.InputJsonValue;
-    }
 
-    const updatePayload: Prisma.RegistrationUpdateInput = {};
-    if (profilePayload !== undefined) {
-      updatePayload.profile = profilePayload as Prisma.InputJsonValue;
-    }
+    const updatePayload =
+      profilePayload !== undefined ? { profile: profilePayload } : {};
 
     await prisma.registration.upsert({
       where: { email },
-      create: createPayload,
-      update: updatePayload,
+      create: createPayload as any,
+      update: updatePayload as any,
     });
 
     if (plan === "free") {
