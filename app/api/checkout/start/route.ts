@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   // Use a real, supported API version (your previous "2025-09-30.clover" is invalid)
-  apiVersion: "2025-09-30.clover",
+  apiVersion: "2025-10-29.clover",
 });
 
 function planKey(plan: string, cycle: string) {
