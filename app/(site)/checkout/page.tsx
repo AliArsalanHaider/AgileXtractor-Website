@@ -1,4 +1,5 @@
-// app/checkout/page.tsx
+// app/(site)/checkout/page.tsx
+import { Suspense } from "react";
 import CheckoutForm from "@/app/components/CheckoutForm";
 
 export default function CheckoutPage() {
@@ -9,9 +10,9 @@ export default function CheckoutPage() {
         <p className="mt-1 text-sm text-neutral-600">
           Create your account and finish payment.
         </p>
-        <div className="mt-6">
-          <CheckoutForm />
-        </div>
+        <Suspense fallback={<div className="text-sm text-slate-600">Loading checkout…</div>}>
+        <CheckoutForm />
+      </Suspense>
       </section>
     </main>
   );
