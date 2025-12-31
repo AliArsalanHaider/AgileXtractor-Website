@@ -146,7 +146,7 @@ export default function Header() {
     window.location.replace("/");
   }
 
-  // ⛔️ IMPORTANT: No early returns before this point.
+
   // Decide to hide the header only *after* all hooks ran:
   if (suppress) return null;
 
@@ -167,7 +167,7 @@ export default function Header() {
       </div>
 
       {/* Top bar */}
-      <div className="mx-auto max-w-7xl 2xl:max-w-[1560px] px-5 sm:px-8 pt-4 pb-3">
+      <div className="mx-auto max-w-7xl 2xl:max-w-390 px-5 sm:px-8 pt-4 pb-3">
         <div className="flex items-center justify-between">
           <Link href="/" aria-label="AgileXtract home" className="block">
             <Image
@@ -210,7 +210,7 @@ export default function Header() {
       </div>
 
       {/* Hero */}
-      <div className="mx-auto max-w-7xl 2xl:max-w-[1560px] px-5 sm:px-8 pb-24 pt-4">
+      <div className="mx-auto max-w-7xl 2xl:max-w-390 px-5 sm:px-8 pb-24 pt-4">
         <div className="grid grid-cols-1 items-center gap-8 md:grid-cols-2">
           <div className="max-w-2xl md:max-w-3xl">
             <h2 className="text-3xl font-semibold leading-tight text-white sm:text-4xl md:text-5xl">
@@ -306,7 +306,7 @@ export default function Header() {
                     </svg>
                   </button>
                 </div>
-                <div className="h-[540px] w-full sm:h-[560px]">
+                <div className="h-135 w-full sm:h-140">
                   <iframe
                     src={bookingsUrl!}
                     title="Bookings Calendar"
