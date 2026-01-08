@@ -19,9 +19,9 @@ export const metadata: Metadata = {
   title: "AgileXtract",
   description: "No more manual entries",
   icons: {
-    icon: "x.png",  
-    shortcut: "x.png",
-    apple: "x.png",
+    icon: "X.png",  
+    shortcut: "X.png",
+    apple: "X.png",
   },
 };
 
